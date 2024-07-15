@@ -1,29 +1,59 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <pthread.h>
 #include <string.h>
 #include <stdarg.h>
-#include <limits.h>
 #include <errno.h>
 #include <stdint.h>
-#include <dirent.h>
-#include <sys/stat.h>
-#include <time.h>
-#include <assert.h>
+#include <setjmp.h>
+#include <ctype.h>
 
-#include "cfconf.h"
-#include "cfstate.h"
-#include "cferror.h"
+#include "cfreq.h"
 
 
 
 /* Parsed args go here */
 typedef struct CliArgs {
+	cfreq_State *cfs;
 	int nthreads; /* number of threads '-t' */
 } CliArgs;
 
 
 
+/* defer with status 'c' */
+#define cfdefer(c) \
+	{ status = c; goto defer; }
+
+
+
+/* write error */
+#define werror(err) \
+	werrorfmt(err, CFREQ_SRCINFO)
+
+
+/* write formatted error */
+#define werrorf(fmt, ...) \
+	werrorfmt(fmt, CFREQ_SRCINFO, __VA_ARGS__)
+
+
+/*
+ * Write to 'stderr'; expects in order: line, source
+ * and rest of the args.
+ */
+static void werrorfmt(const char *fmt, ...) {
+	va_list ap;
+
+	va_start(ap, fmt);
+	int line = va_arg(ap, int);
+	const char *src = va_arg(ap, const char *);
+	fprintf(stderr, PROG_NAME ": [%d:%s]: ", line, src);
+	vfprintf(stderr, fmt, ap);
+	fputc('\n', stderr);
+	fflush(stderr);
+	va_end(ap);
+}
+
+
+/* clamp provided thread count */
 static int clamptocorecount(unsigned long usercnt) {
 #if defined(__linux__) || defined(_AIX) || (defined(__APPLE__) && defined(__MACH__))
 #include <unistd.h>
@@ -46,89 +76,69 @@ static int clamptocorecount(unsigned long usercnt) {
 #else
 	int ncpu = 1;
 #endif
-	return (ncpu >= 1 ? ncpu : 1);
+	return (ncpu >= (long int)usercnt ? (long int)usercnt : ncpu);
 }
 
 
-static int threadcnt(CFThread *mt, const char *tcnt) {
+/* option -t */
+static int threadcnt(const char *tcnt) {
 	static int ncpu = 0;
 	char *endp;
 	errno = 0;
 	unsigned long cnt = strtoul(tcnt, &endp, 10);
 
-	if (errno == ERANGE)
-
-	if (endp != NULL || cnt < 1)
-		cfE_error(mt, "%s", strerror(errno));
+	if (errno == ERANGE || endp != NULL || cnt < 1)
+		werror("invalid thread count (in option '-t')");
 	if (ncpu == 0) {
 		ncpu = clamptocorecount(cnt);
-		return (ncpu > cnt ? cnt : ncpu);
+		return (ncpu > (int)cnt ? (int)cnt : ncpu);
 	} else {
 		return ncpu;
 	}
 }
 
 
-static void parseargs(CFThread *mt, CliArgs *ctx, int argc, char **argv) {
-	const char *arg;
+/* parse cli arguments into 'cliargs' */
+static int parseargs(CliArgs *cliargs, int argc, char **argv) {
+	cf_byte nomoreopts = 0;
+	int nofile = 1;
 
 	while (argc-- > 0) {
-		arg = *argv++;
+		const char *arg = *argv++;
 		switch (arg[0]) {
 		case '-':
+			if (nomoreopts) 
+				goto addfilepath;
 			switch(arg[1]) {
+			case '-': 
+				nomoreopts = 1;
+				break;
 			case 't':
-				if (argc-- >= 0)
-					ctx->nthreads = threadcnt(mt, *argv++);
-				else
-					cfE_error(mt, "option '-t' is missing thread count");
+				if (arg[2] != '\0') {
+					arg = &arg[2];
+				} else if (argc-- > 0) {
+					arg = *argv++;
+				} else {
+					werror("option 't' is missing thread count");
+					return 1;
+				}
+				cliargs->nthreads = threadcnt(arg);
 				break;
 			default:
-				cfE_error(mt, "invalid option '-%c'", arg[1]);
+				werrorf("invalid option '-%c'", arg[1]);
+				return 1;
 			}
 			break;
 		default:
-			cfS_addfilelock(mt, arg);
+addfilepath:
+			nofile = 0; /* got a file */
+			cfreq_addfilepath(cliargs->cfs, arg);
 			break;
 		}
 	}
-}
-
-
-static void countfromfile(const char *filepath, int inmainth) {
-	FILE *fp = fopen(filepath, "r");
-	unsigned char buff[BUFSIZ];
-	size_t n;
-
-	if (!fp) {
-		const char *err = strerror(errno);
-		if (inmainth) 
-			diemtf("%s", err);
-		else 
-			diethf("%s", err);
-	}
-	logmsg("reading '%s'...", filepath);
-	while ((n = fread(buff, sizeof(buff[0]), BUFSIZ, fp)) > 0) {
-		if (n != BUFSIZ && ferror(fp))
-			goto error;
-		for (size_t i = 0; i < n; i++)
-			freqtable[buff[i]]++;
-	}
-	if (ferror(fp))
-error:
-		die(inmainth, "'fread' failed while reading '%s'", filepath);
-}
-
-
-/* count frequencies single thread */
-static inline void count(void) {
-	struct stat st;
-
-	for (int i = 0; i < nfile_locks; i++) {
-		const char *filename = file_locks[i].filepath;
-		stat(filename, &st);
-		countfromfile(file_locks[i].filepath, 1);
-	}
+	if (nofile)
+		werror("no files provided");
+	return nofile;
 }
 
 
@@ -139,78 +149,78 @@ static int printspecial(size_t *freqtable) {
 		"\\a", "\\b", "\\t", "\\n", "\\v", "\\f", "\\r",
 		"SO", "SI", "DLE", "DC1", "DC2", "DC3",	"DC4",
 		"NAK", "SYN", "ETB", "CAN", "EM", "SUB", "ESC",
-		"FS", "GS", "RS", "US"
+		"FS", "cfs", "RS", "US"
 	};
-	int i;
+	unsigned int i;
 
 	for (i = 0; i < sizeof(special)/sizeof(special[0]); i++)
-		fprintf(stdout, "'%-4s' : '%zu'\n", special[i], freqtable[i]);
+		fprintf(stdout, "%-4s : %zu\n", special[i], freqtable[i]);
 	return i;
 }
 
 
 /* print 'freqtable' */
 static void printfreqtable(size_t *freqtable) {
-	for (int i = printspecial(freqtable); i < FREQSIZE; i++)
-			fprintf(stdout, "'%-4c' : '%zu'\n", i, freqtable[i]);
+	for (int i = printspecial(freqtable); i < CFREQ_TABLESIZE; i++)
+			fprintf(stdout, "%-4c : %zu\n", isgraph(i) ? i : '?', freqtable[i]);
+	fflush(stdout);
 }
 
 
-/*
- * Thread entry function.
- * Internally this gets called after the thread
- * has been placed into the threadpool and the 'userdata'
- * is the corresponding 'CFThread' from the thread pool.
- */
-void *threadentry(void *userdata) {
-	CFThread *th = (CFThread *)userdata;
-	FileLock *fl = NULL;
-	pthread_t thread = pthread_self();
+static void *cfrealloc(void *block, void *ud, size_t os, size_t ns) {
+	(void)(ud); /* unused */
+	(void)(os); /* unused */
 
-	for (;;) {
-		// TODO: read files, recurse through directories
+	if (ns == 0) {
+		free(block);
+		return NULL;
 	}
-	return NULL;
+	return realloc(block, ns);
 }
 
 
-/*
- * Run all threads and count frequency.
- */
-void runthreads(int threadcnt) {
-	pthread_t thread;
-	int i;
-
-	pthread_mutex_init(&global_mutex, NULL);
-	pthread_cond_init(&global_condition, NULL);
-	nthreads = threadcnt;
-	active_threads = threadcnt;
-	for (i = 0; i < threadcnt; i++) {
-		if (pthread_create(&thread, NULL, threadentry, &i) < 0)
-			diemtf("%s", strerror(errno));
-	}
-	for (i = 0; i < nthreads; i++)
-		pthread_join(threads[i].thread, NULL);
-	if (thread_had_error)
-		diemt("error in thread");
+/* error writer */
+static void cferror(cfreq_State *cfs, const char *msg) {
+	(void)(cfs); /* unused */
+	fputs(msg, stderr);
+	fflush(stderr);
 }
 
 
-/* entry */
+/* error recovery */
+static jmp_buf jmp;
+
+
+/* panic handler */
+static cf_noret cfpanic(cfreq_State *cfs) {
+	(void)(cfs); /* unused */
+	longjmp(jmp, 1);
+}
+
+
+/* cfreq */
 int main(int argc, char **argv) {
-	CliArgs cliargs = { 0 };
+	int status = EXIT_SUCCESS;
+	char **argsstart = ++argv; /* prevent clobber warning ('setjmp') (GCC) */
 
-	CFThread mt = cfS_new(threadentry);
-	if (cf_unlikely(mt == NULL)) {
-		fputs("cfreq: can't create state\n", stderr);
-		exit(EXIT_FAILURE);
+	cfreq_State *cfs = cfreq_newstate(cfrealloc, NULL);
+	if (cf_unlikely(cfs == NULL)) {
+		werror("can't create state");
+		cfdefer(EXIT_FAILURE);
 	}
-	parseargs(mt, &cliargs, --argc, ++argv);
-	if (cliargs.nthreads > 0) {
-		cfS_newthreadpool(cliargs.nthreads);
-	} else {
+	cfreq_seterror(cfs, cferror);
+	cfreq_setpanic(cfs, cfpanic);
+	if (setjmp(jmp) == 0) {
+		size_t outtab[CFREQ_TABLESIZE] = { 0 };
+		CliArgs cliargs = { .cfs = cfs };
+		if (parseargs(&cliargs, --argc, argsstart) != 0)
+			cfdefer(EXIT_FAILURE);
+		cfreq_count(cfs, cliargs.nthreads, outtab);
+		printfreqtable(outtab);
+	} else { /* return from panic handler */
+		status = EXIT_FAILURE;
 	}
-	printfreqtable(crS_getfreqtable(mt));
-	mainthreadcleanup();
-	return 0;
+defer:
+	cfreq_free(cfs);
+	return status;
 }

@@ -5,50 +5,80 @@
 #include <dirent.h>
 #include <pthread.h>
 
-#include "cfconf.h"
+#include "cfreq.h"
 
 
 
-/* entry for threads */
-typedef void *(*cf_ThreadFn)(void *userdata);
+/* size of state */
+#define STATESIZE		sizeof(cfreq_State)
 
 
 
-/* size of 'freqtable' in global state */
-#define FREQSIZE			UCHAR_MAX
+/* get state */
+#define S_(th)		((th)->cfs)
+
+/* get main thread */
+#define MT_(cfs)		(&(cfs)->mainthread)
 
 
 
-/* get global state */
-#define G(th)		((th)->gs)
-
-
-
-/* get lock on 'statemutex' */
-#define cfS_lockstate(th) \
+/* lock 'statemutex' */
+#define lockstatemutex(th) \
 	{ if (!(th)->statelock) { \
-	  while (pthread_mutex_trylock(&G(th)->statemutex) < 0) \
-		  pthread_cond_wait(&G(th)->statecond, &G(th)->statemutex); \
-	  (th)->statelock = 1; }}
+	      pthread_mutex_lock(&S_(th)->statemutex); \
+		  (th)->statelock = 1; } }
 
 
-/* release 'statemutex' lock and broadcast it */
-#define cfS_unlockstate(th) \
-	{ if ((th)->statelock) { (th)->statelock = 0; \
-	  pthread_mutex_unlock(&G(th)->statemutex); \
-	  pthread_cond_broadcast(&G(th)->statecond); }}
+/* unlock 'statemutex' */
+#define unlockstatemutex(th) \
+	{ if ((th)->statelock) { \
+	      (th)->statelock = 0; \
+	      pthread_mutex_unlock(&S_(th)->statemutex); } }
 
+
+/* wait on 'statecond' */
+#define waitstatecond(th) \
+	{ cf_assert((th)->statelock); (th)->statelock = 0; \
+	  pthread_cond_wait(&S_(th)->statecond, &S_(th)->statemutex); \
+	  (th)->statelock = 1; }
+
+
+
+/* exit from thread if it is dead, do 'pre' before exiting */
+#define checkdeadpre(th,pre) \
+	if ((th)->dead) { cf_assert(!(th)->mainthread); \
+		pre; unlockstatemutex(th); pthread_exit(NULL); }
+
+
+
+/* check if thread is dead, if so then exit */
+#define checkdead(th)		checkdeadpre(th, (void)0)
 
 
 /* check if worker thread errored */
-#define cfS_workererror(th)			(G(th)->therror)
+#define errorworker(th)			(S_(th)->errworker)
+
+
+/* table for counting char occurrences of 8-bit ASCII */
+#define CFREQTABLE(name)		size_t name[CFREQ_TABLESIZE]
+
+
+
+
+/* buffer */
+typedef struct Buffer { /* functions in 'cfbuffer.c' */
+	char *str;
+	size_t len;
+	size_t size;
+} Buffer;
 
 
 
 /* thread context */
 typedef struct CFThread {
-	struct GState *gs;
+	struct cfreq_State *cfs;
 	pthread_t thread; /* the thread itself */
+	Buffer buf; /* buffer for filepaths */
 	DIR **dirs; /* open directory streams */
 	size_t ndirs; /* number of elements in 'dirs' */
 	size_t sizedirs; /* size of 'dirs' */
@@ -61,36 +91,40 @@ typedef struct CFThread {
 
 /* filenames with lock flag */
 typedef struct FileLock {
-	const char *filepath;
-	volatile int lock; /* to prevent race */
+	char *filepath;
+	volatile cf_byte lock; /* traverse lock */
+	volatile cf_byte lockcnt; /* count lock */
 } FileLock;
 
 
 
 /* global state */
-typedef struct GState {
+struct cfreq_State {
 	CFThread mainthread;
 	CFThread *workerthreads; /* thread pool */
 	FileLock *flocks; /* filepaths with a flag acting as a lock */
-	cf_ThreadFn threadfn; /* entry function for threads */
+	cfreq_fRealloc frealloc; /* allocator */
+	void *ud; /* userdata for 'frealloc' */
+	cfreq_fError ferror; /* error writer (print) */
+	cfreq_fPanic fpanic; /* panic handler */
 	size_t sizeth; /* size of 'threads' */
 	size_t nthreads; /* number of elements in 'threads' */
 	size_t threadsact; /* number of active threads */
 	size_t sizefl; /* size of 'flocks' */
-	size_t nflocks; /* number of elements in 'flocks' */
-	size_t freqtable[FREQSIZE]; /* character frequencies table */
+	volatile size_t nflocks; /* number of elements in 'flocks' */
+	CFREQTABLE(freqtable); /* character frequencies table */
 	pthread_mutex_t statemutex; /* state access mutex */
-	pthread_cond_t statecond;
-	volatile cf_byte therror; /* true if any of the threads errored */
-} GState;
+	pthread_cond_t statecond; /* state condition */
+	volatile cf_byte errworker; /* true if any of the worker threads errored */
+};
 
 
-CFThread *cfS_new(cf_ThreadFn fn);
-void cfS_newthreadpool(GState *gs, size_t newthreads);
-void cfS_addfilelock(CFThread *th, const char *filepath);
-size_t *cfS_getfreqtable(CFThread *mt);
-cf_noret cfS_freethread(CFThread *th);
-void cfS_freethfrommt(CFThread *mt, CFThread *th);
-void cfS_free(GState *gs);
+
+void cfreqS_count(cfreq_State *cfs);
+void cfreqS_countthreaded(cfreq_State *cfs, size_t nthreads);
+void cfreqS_resetstate(cfreq_State *cfs);
+void cfreqS_closemtdirs(CFThread *mt);
+void cfreqS_addfilelock(CFThread *th, const char *filepath, cf_byte lock);
+cf_noret cfreqS_freeworker(cfreq_State *cfs, CFThread *th);
 
 #endif

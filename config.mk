@@ -7,15 +7,20 @@ MANPREFIX = $(PREFIX)/share/man
 
 # includes and libraries
 INCS =
-LIBS =
+LIBS = -lpthread
 
 # optimizations 
-OPTS = -O2
+#OPTS = -O2
+
+# debug defines and 
+DDEFS = -DCF_ASSERT
+DCFLAGS = -fsanitize=address -fsanitize=undefined -g
+DLDFLAGS = -fsanitize=address -fsanitize=undefined
 
 # flags
 CPPFLAGS =
-CFLAGS   = -std=c99 -Wpedantic -Wall -Wextra ${OPTS} ${INCS} ${CPPFLAGS}
-LDFLAGS  = ${LIBS}
+CFLAGS   = -std=c99 -Wpedantic -Wall -Wextra ${DCFLAGS} ${OPTS} ${INCS} ${CPPFLAGS}
+LDFLAGS  = ${LIBS} ${DLDFLAGS}
 
 # compiler and linker
 CC = gcc

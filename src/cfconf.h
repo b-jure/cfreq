@@ -36,12 +36,22 @@
 #endif
 
 
+/* path separator character */
+#if defined(__linux__)
+#define CF_PATHSEP			'/'
+#elif defined(__WIN32)
+#define CF_PATHSEP			'\\'
+#endif
+
+
 /* maximum memory size */
 #define MAX_CFSIZE		SIZE_MAX
 
 
-/* byte */
-typedef unsigned char cf_byte;
+/* signature for core library functions */
+#if !defined(CFREQ_API)
+#define CFREQ_API			extern
+#endif
 
 
 #endif

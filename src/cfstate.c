@@ -3,66 +3,212 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include "cfstate.h"
+#include "cfconf.h"
 #include "cferror.h"
 #include "cfalloc.h"
-#include "cfconf.h"
+#include "cfbuffer.h"
 
 
 
-/* 
- * Create new state, and return mainthread if
- * state was built successfully. 
- */
-CFThread *cfS_new(cf_ThreadFn fn) {
-	GState *gs;
 
-	gs = malloc(sizeof(*gs));
-	if (cf_unlikely(gs == NULL))
-		return NULL;
-	gs->mainthread = (CFThread){ 
-		.mainthread = 1,
-		.thread = pthread_self(),
-		.gs = gs 
-	};
-	gs->workerthreads = NULL;
-	gs->flocks = NULL;
-	gs->threadfn = fn;
-	gs->sizeth = 0;
-	gs->nthreads = 0;
-	gs->threadsact = 0;
-	gs->sizefl = 0;
-	gs->nflocks = 0;
-	memset(gs->freqtable, 0, FREQSIZE);
-	pthread_mutex_init(&gs->statemutex, NULL);
-	pthread_cond_init(&gs->statecond, NULL);
-	gs->therror = 0;
-	return &gs->mainthread;
+/* -------------------------------------------------------------------------
+ * Resolve filepaths
+ * ------------------------------------------------------------------------- */
+
+/* add external filepath to 'flocks' */
+void cfreqS_addfilelock(CFThread *th, const char *filepath, cf_byte lock) {
+	cfreq_State *cfs = th->cfs;
+	char *dupfp = cf_strdup(th, filepath); /* might be in buffer */
+
+	lockstatemutex(th);
+	checkdead(th);
+	cfreqA_growarray(th, cfs->flocks, cfs->sizefl, cfs->nflocks);
+	cfs->flocks[cfs->nflocks++] = (FileLock){ .filepath = dupfp, .lock = lock };
+	unlockstatemutex(th);
 }
 
 
-void cfS_addfilelock(CFThread *mt, const char *filepath) {
-	GState *gs;
-
-	cf_assert(mt->mainthread);
-	cfS_lockstate(mt);
-	gs = G(mt);
-	cfA_growarray(mt, gs->flocks, gs->sizefl, gs->nflocks);
-	gs->flocks[gs->nflocks++] = (FileLock){ .filepath = filepath, .lock = 0 };
-	cfS_unlockstate(mt);
+static void adddir(CFThread *th, DIR *dir) {
+	checkdeadpre(th, closedir(dir));
+	cfreqA_growarray(th, th->dirs, th->sizedirs, th->ndirs);
+	th->dirs[th->ndirs++] = dir;
 }
 
 
-size_t *cfS_getfreqtable(CFThread *mt) {
-	return G(mt)->freqtable;
+/* traverse directory */
+static void traversedir(CFThread *th) {
+	struct stat st;
+	struct dirent *entry;
+
+	DIR *dir = opendir(th->buf.str);
+	if (dir == NULL)
+		cfreqE_errnoerror(th, "opendir", errno);
+	adddir(th, dir);
+	th->buf.len--; /* pop null terminator */
+	c2buff(th, &th->buf, CF_PATHSEP); /* add path separator */
+	for (errno = 0; (entry = readdir(dir)) != NULL; errno = 0) {
+		size_t len = strlen(entry->d_name) + 1;
+		str2buff(th, &th->buf, entry->d_name, len);
+		if (stat(th->buf.str, &st) < 0)
+			cfreqE_errorf(th, "stat(%S): %S", th->buf.str, strerror(errno));
+		if (S_ISREG(st.st_mode)) {
+			cfreqS_addfilelock(th, th->buf.str, 1);
+		} else if (S_ISDIR(st.st_mode)) {
+			if (strcmp(entry->d_name, ".") && strcmp(entry->d_name, "..")) {
+				traversedir(th);
+				break;
+			}
+		}
+		th->buf.len -= len; /* remove previous 'entry->d_name' */
+	}
+	int olderrno = errno;
+	if (cf_unlikely(closedir(th->dirs[--th->ndirs]) < 0))
+		cfreqE_errnoerror(th, "closedir", errno);
+	if (cf_unlikely(olderrno != 0))
+		cfreqE_errnoerror(th, "readdir", olderrno);
+	buffpoppath(&th->buf, 1); /* pop current directory + file sep */
 }
 
+
+/* add filepath to 'flocks' */
+static void addfilepath(CFThread *th, const char *filepath) {
+	struct stat st;
+
+	initbuf(th, &th->buf);
+	if (stat(filepath, &st) < 0)
+		cfreqE_errorf(th, "stat(%S): %S", strerror(errno));
+	if (S_ISREG(st.st_mode)) {
+		cfreqS_addfilelock(th, filepath, 1);
+	} else if (S_ISDIR(st.st_mode)) {
+		str2buff(th, &th->buf, filepath, strlen(filepath) + 1);
+		traversedir(th);
+	}
+	freebuf(th, &th->buf);
+}
+
+
+/* fill flocks */
+static void addfilepaths(cfreq_State *cfs, CFThread *th) {
+	lockstatemutex(th);
+	for (size_t i = 0; i < cfs->nflocks && !th->dead; i++) {
+		FileLock *fl = &cfs->flocks[i];
+		if (!fl->lock) { /* if not locked */
+			fl->lock = 1;
+			unlockstatemutex(th);
+			addfilepath(th, fl->filepath);
+			lockstatemutex(th);
+		}
+	}
+}
+
+
+
+/* -------------------------------------------------------------------------
+ * Read file (count)
+ * ------------------------------------------------------------------------- */
+
+
+typedef struct FileBuf {
+	int n;
+	FILE *fp;
+	cf_byte buf[BUFSIZ];
+	cf_byte *current;
+	CFThread *th; /* for errors */
+} FileBuf;
+
+
+static inline void openfb(FileBuf *fb, const char *filepath, CFThread *th) {
+	fb->n = 0;
+	fb->current = fb->buf;
+	fb->th = th;
+	fb->fp = fopen(filepath, "r");
+	if (cf_unlikely(fb->fp == NULL))
+		cfreqE_errnoerror(fb->th, "fopen", errno);
+}
+
+
+static inline void closefb(FileBuf *fb) {
+	if (cf_unlikely(fclose(fb->fp) == EOF))
+		cfreqE_errnoerror(fb->th, "fclose", errno);
+}
+
+
+static const cf_byte *fillfilebuf(FileBuf *fb) {
+	cf_assert(fb->n == 0 && fb->current != NULL);
+	if (feof(fb->fp)) return (fb->current = NULL);
+	fb->n = fread(fb->buf, 1, sizeof(fb->buf), fb->fp);
+	return (fb->current = fb->buf);
+}
+
+
+static inline int fbgetc(FileBuf *fb) {
+	if (fb->n > 0) return (fb->n--, *fb->current++);
+	else if (fb->current == NULL) return EOF;
+	else return (fillfilebuf(fb), fbgetc(fb));
+}
+
+
+static void addtables(CFThread *th, size_t *dest, size_t *src, size_t size) {
+	lockstatemutex(th);
+	for (size_t i = 0; i < size; i++) { /* add counts to state table */
+		if (cf_unlikely(dest[i] > MAX_CFSIZE - src[i])) {
+			unlockstatemutex(th);
+			cfreqE_errorf(th, "character count overflow, limit is '%N'", MAX_CFSIZE);
+		}
+		dest[i] += src[i];
+	}
+	unlockstatemutex(th);
+}
+
+
+/* count chars in regular file */
+static void countfile(cfreq_State *cfs, CFThread *th, const char *filepath)
+{
+	CFREQTABLE(filetable);
+	FileBuf fb;
+	struct stat st;
+	int c;
+
+	if (cf_unlikely(stat(filepath, &st) < 0))
+		cfreqE_errnoerror(th, "stat", errno);
+	if (!S_ISREG(st.st_mode)) /* not a regular file ? */
+		return; /* nothing to count */
+	openfb(&fb, filepath, th); /* open file buffer */
+	while ((c = fbgetc(&fb)) != EOF)
+		filetable[(cf_byte)c]++;
+	closefb(&fb); /* close file buffer */
+	addtables(th, cfs->freqtable, filetable, CFREQ_TABLESIZE);
+}
+
+
+/* count characters */
+static void countallfiles(cfreq_State *cfs, CFThread *th)
+{
+	lockstatemutex(th);
+	for (size_t i = 0; i < cfs->nflocks && !th->dead; i++) {
+		FileLock *fl = &cfs->flocks[i];
+		if (!fl->lockcnt) { /* if not locked */
+			fl->lockcnt = 1;
+			unlockstatemutex(th);
+			countfile(cfs, th, fl->filepath);
+		}
+	}
+}
+
+
+
+/* -------------------------------------------------------------------------
+ * Thread pool (worker threads)
+ * ------------------------------------------------------------------------- */
 
 /* initialize worker thread */
-static void initworker(CFThread *th, GState *gs) {
-	cf_assert(!th->mainthread);
-	th->gs = gs;
+static void initworker(CFThread *th, cfreq_State *cfs) {
+	th->cfs = cfs;
 	th->thread = pthread_self();
 	th->dirs = NULL;
 	th->ndirs = 0;
@@ -72,98 +218,166 @@ static void initworker(CFThread *th, GState *gs) {
 }
 
 
-/* entry for worker threads */
-static void *workerentry(void *userdata) {
-	CFThread th;
-	CFThread *ud;
-	GState *gs = (GState *)userdata;
+static CFThread *addworker(cfreq_State *cfs, CFThread *th) {
+	cf_assert(!th->mainthread);
+	cf_assert(th->thread == pthread_self());
+	lockstatemutex(th);
+	cfreqA_growarray(th, cfs->workerthreads, cfs->sizeth, cfs->nthreads);
+	CFThread *worker = &cfs->workerthreads[cfs->nthreads++];
+	*worker = *th;
+	cfs->threadsact++;
+	unlockstatemutex(worker);
+	pthread_cond_signal(&cfs->statecond); /* signal main thread */
+	return worker;
+}
 
-	cf_assert(gs->threadfn != NULL);
-	initworker(&th, gs);
-	cfS_lockstate(&th);
-	cfA_growarray(&th, gs->workerthreads, gs->sizeth, gs->nthreads);
-	gs->workerthreads[gs->nthreads++] = th;
-	gs->threadsact++;
-	ud = &gs->workerthreads[gs->nthreads - 1];
-	cfS_unlockstate(&th);
-	gs->threadfn(ud); /* call user entry */
-	cfS_lockstate(&th);
-	gs->threadsact--;
-	cfS_unlockstate(&th);
+
+/* entry for worker threads */
+static void *workerfn(void *userdata) {
+	cfreq_State *cfs = (cfreq_State *)userdata;
+	CFThread th;
+
+	initworker(&th, cfs);
+	CFThread *worker = addworker(cfs, &th);
+	addfilepaths(cfs, worker); /* first get all the files */
+	countallfiles(cfs, worker); /* now start counting */
+	lockstatemutex(worker);
+	cfs->threadsact--;
+	unlockstatemutex(worker);
 	return NULL;
 }
 
 
-/* create new thread pool */
-void cfS_newthreadpool(GState *gs, size_t nthreads) {
-	CFThread th; /* unused */
+/* count threaded */
+void cfreqS_countthreaded(cfreq_State *cfs, size_t nthreads)
+{
+	CFThread *mt = MT_(cfs);
+	CFThread th;
+	int res;
 
+	printf("counting with %zu threads\n", nthreads);
+	cfs->errworker = 0;
 	/* thread pool must be empty */
-	cf_assert(nthreads > 0);
-	cf_assert(gs->threads == NULL && gs->nthreads == 0 && gs->sizeth ==  0);
+	cf_assert(nthreads > 0 && cfs->sizeth == 0 && cfs->threadsact == 0);
 	for (size_t i = 0; i < nthreads; i++) {
-		if (cf_unlikely(pthread_create(&th.thread, NULL, workerentry, gs) < 0))
-			cfE_error(&gs->mainthread, "%s", strerror(errno));
+		res = pthread_create(&th.thread, NULL, workerfn, cfs);
+		if (cf_unlikely(res != 0))
+			cfreqE_pthreaderror(mt, "pthread_create", res);
 	}
+	lockstatemutex(mt);
+	while (nthreads != cfs->nthreads) { /* wait until threads are registered */
+		if (cf_unlikely(cfs->errworker)) { /* worker errored ? */
+			unlockstatemutex(mt);
+			goto workerror;
+		}
+		waitstatecond(mt);
+	}
+	unlockstatemutex(mt);
+	for (size_t i = 0; i < nthreads; i++) { /* join on all threads */
+		res = pthread_join(cfs->workerthreads[i].thread, NULL);
+		if (cf_unlikely(res != 0))
+			cfreqE_pthreaderror(mt, "pthread_join", res);
+	}
+	if (cf_unlikely(cfs->errworker)) {
+workerror:
+		cfreqE_error(mt, "worker thread had an error");
+	}
+}
+
+
+/* count on a single thread (mainthread) */
+void cfreqS_count(cfreq_State *cfs) {
+	cfs->errworker = 0;
+	addfilepaths(cfs, MT_(cfs));
+	countallfiles(cfs, MT_(cfs));
+}
+
+
+
+/* -------------------------------------------------------------------------
+ * Reset/Cleanup state
+ * ------------------------------------------------------------------------- */
+
+/* free and reset the 'flocks' array */
+static void resetfilelocks(cfreq_State *cfs) {
+	cf_assert(MT_(cfs)->statelock);
+	for (size_t i = 0; i < cfs->nflocks; i++) {
+		printf("FILE: '%s'\n", cfs->flocks[i].filepath);
+		char *filepath = cfs->flocks[i].filepath;
+		cfreqA_free(cfs, filepath, strlen(filepath) + 1);
+	}
+	cfreqA_free(cfs, cfs->flocks, cfs->sizefl * sizeof(cfs->flocks[0]));
+	cfs->flocks = NULL; cfs->sizefl = 0; cfs->nflocks = 0;
 }
 
 
 /* close worker thread open dirs */
-static inline void closedirs(CFThread *th) {
+static void closedirs(CFThread *th) {
 	if (th->dirs) {
 		while (th->ndirs--)
 			closedir(th->dirs[th->ndirs]); /* ignore failures */
-		cfA_free(th->dirs); /* free 'dirs' */
+		cfreqA_free(th->cfs, th->dirs, th->sizedirs * sizeof(th->dirs[0]));
 		th->sizedirs = 0;
 		th->dirs = NULL;
 	}
-	cf_assert(th->dirs == NULL && th->sizedirs == 0 && th->ndirs == 0);
 }
 
 
-/* free thread which is also the current thread running */
-cf_noret cfS_freethread(CFThread *th) {
-	GState *gs = th->gs;
-	CFThread *threads = gs->workerthreads;
-
-	cf_assert(!th->mainthread); /* can't be mainthread */
-	cf_assert(th->thread == pthread_self()); /* this thread is current thread */
-	cfS_lockstate(th);
-	cf_assert(!th->dead); /* can't already be dead */
-	closedirs(th);
-	th->dead = 1; /* mark it as dead */
-	gs->threadsact--;
-	cfS_unlockstate(th);
-	pthread_exit(NULL);
+/* close main thread open dirs */
+void cfreqS_closemtdirs(CFThread *mt) {
+	closedirs(mt);
 }
 
 
 /* free 'threads' */
-static void freethreadpool(GState *gs) {
-	for (size_t i = 0; i < gs->nthreads; i++) {
-		CFThread *th = &gs->workerthreads[i];
+static void cancelworkerthreads(cfreq_State *cfs) {
+	for (size_t i = 0; i < cfs->nthreads; i++) {
+		CFThread *th = &cfs->workerthreads[i];
 		cf_assert(!th->statelock);
 		if (!th->dead) {
+			freebuf(th, &th->buf);
 			closedirs(th);
 			th->dead = 1;
-			pthread_cancel(th->thread);
-			gs->threadsact--;
+			int res = pthread_cancel(th->thread);
+			if (cf_unlikely(res != 0))
+				cfreqE_pthreaderror(MT_(cfs), "pthread_cancel", res);
+			res = pthread_join(th->thread, NULL);
+			if (cf_unlikely(res != 0))
+				cfreqE_pthreaderror(MT_(cfs), "pthread_join", res);
+			cfs->threadsact--;
 		}
-		cf_assert(th->sizedirs == 0 && th->ndirs == 0);
+		cf_assert(th->sizedirs == 0);
 	}
-	cf_assert(gs->threadsact == 0);
-	if (gs->workerthreads)
-		cfA_free(&gs->workerthreads);
+	cf_assert(cfs->threadsact == 0);
+	if (cfs->sizeth > 0)
+		cfreqA_free(cfs, cfs->workerthreads,
+					cfs->sizeth * sizeof(cfs->workerthreads[0]));
+	cfs->workerthreads = NULL; cfs->nthreads = 0; cfs->sizeth = 0;
 }
 
 
-/* free global state */
-void cfS_free(GState *gs) {
-	cfS_lockstate(&gs->mainthread);
-	freethreadpool(gs);
-	cfA_free(gs->flocks);
-	cfS_unlockstate(&gs->mainthread);
-	pthread_mutex_destroy(&gs->statemutex);
-	pthread_cond_destroy(&gs->statecond);
-	cfA_free(gs); /* finally free state */
+/* stops the count canceling all the worker threads */
+void cfreqS_resetstate(cfreq_State *cfs) {
+	if (cfs->nthreads == 0) /* no multithreading ? */
+		closedirs(MT_(cfs));
+	else
+		cancelworkerthreads(cfs);
+	resetfilelocks(cfs);
+	memset(cfs->freqtable, 0, sizeof(cfs->freqtable));
+}
+
+
+/* free worker thread which is also the caller */
+cf_noret cfreqS_freeworker(cfreq_State *cfs, CFThread *th) {
+	cf_assert(!th->mainthread);
+	cf_assert(th->thread == pthread_self());
+	lockstatemutex(th);
+	if (!th->dead) {
+		freebuf(th, &th->buf);
+		closedirs(th);
+		th->dead = 1; /* mark it as dead */
+		cfs->threadsact--;
+	}
+	unlockstatemutex(th);
+	pthread_exit(NULL);
 }

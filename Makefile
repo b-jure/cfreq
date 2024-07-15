@@ -1,11 +1,14 @@
-# [PROGRAM/LIBRARY] - [BRIEF DESCRIPTION]
-# See [header file here] for copyright and licence details.
+# cfreq - multithreaded 8-bit ASCII counter
+# See 'cfreq.h' for copyright and licence details.
 
 include config.mk
 
-SRC = src/cfalloc.c src/cferror.c src/cfreq.c src/cfstate.c
+SRC = src/cfalloc.c src/cfapi.c src/cferror.c src/cfreq.c src/cfstate.c \
+	  src/cfbuffer.c
 OBJ = ${SRC:.c=.o}
+
 BIN = cfreq
+LIB = libcfreq.so
 
 all: options ${BIN}
 
