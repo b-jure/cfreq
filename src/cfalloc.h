@@ -6,16 +6,24 @@
 
 
 /* grow generic array */
-#define cfA_growarray(th,b,sz,n) \
-	((b) = cfA_growarray_(th, b, &(sz), n, sizeof(*b)))
+#define cfreqA_growarray(th,b,sz,n) \
+	((b) = cfreqA_growarray_(th, b, &(sz), n, sizeof(*b)))
+
+/* ensure array space */
+#define cfreqA_ensurearray(th,b,sz,n,e) \
+	((b) = cfreqA_ensurearray_(th, b, &(sz), n, e, sizeof(*b)))
+
+/* free array */
+#define cfreqA_freearray(th,b,sz) \
+	cfreqA_free(S_(th), b, (sz) * sizeof(*(b)))
 
 
-/* free memory */
-#define cfA_free(p)		cfA_saferealloc(NULL, p, 0);
-
-
-void *cfA_saferealloc(CFThread *th, void *p, size_t nsize);
-void *cfA_growarray_(CFThread *th, void *block, size_t *sizep, size_t nelems,
-					 size_t elemsize);
+void *cfreqA_malloc(CFThread *th, size_t size);
+void cfreqA_free(cfreq_State *cfs, void *block, size_t osize);
+void *cfreqA_realloc(CFThread *th, void *p, size_t osize, size_t nsize);
+void *cfreqA_growarray_(CFThread *th, void *block, size_t *sizep, size_t nelems,
+						size_t elemsize);
+void *cfreqA_ensurearray_(CFThread *th, void *block, size_t *sizep,
+						  size_t nelems, size_t ensure, size_t elemsize);
 
 #endif

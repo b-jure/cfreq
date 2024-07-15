@@ -39,9 +39,4 @@
 /* maximum memory size */
 #define MAX_CFSIZE		SIZE_MAX
 
-
-/* byte */
-typedef unsigned char cf_byte;
-
-
 #endif
