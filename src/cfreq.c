@@ -8,6 +8,11 @@
 #include <ctype.h>
 
 #include "cfreq.h"
+<<<<<<< HEAD
+=======
+#include "cfstate.h"
+#include "cferror.h"
+>>>>>>> 710ce35c58b15374dfa376ec2d3b48f21d0fd05a
 
 
 
@@ -76,7 +81,11 @@ static int clamptocorecount(unsigned long usercnt) {
 #else
 	int ncpu = 1;
 #endif
+<<<<<<< HEAD
 	return (ncpu >= (long int)usercnt ? (long int)usercnt : ncpu);
+=======
+	return (ncpu >= usercnt ? usercnt : ncpu);
+>>>>>>> 710ce35c58b15374dfa376ec2d3b48f21d0fd05a
 }
 
 
@@ -87,8 +96,15 @@ static int threadcnt(const char *tcnt) {
 	errno = 0;
 	unsigned long cnt = strtoul(tcnt, &endp, 10);
 
+<<<<<<< HEAD
 	if (errno == ERANGE || endp != NULL || cnt < 1)
 		werror("invalid thread count (in option '-t')");
+=======
+	if (errno == ERANGE)
+		cfreqE_error(mt, ERRMSG("strtoul - %S"), strerror(errno));
+	if (endp != NULL || cnt < 1)
+		cfreqE_error(mt, ERRMSG("invalid thread count (in option '-t')"));
+>>>>>>> 710ce35c58b15374dfa376ec2d3b48f21d0fd05a
 	if (ncpu == 0) {
 		ncpu = clamptocorecount(cnt);
 		return (ncpu > (int)cnt ? (int)cnt : ncpu);
@@ -99,9 +115,14 @@ static int threadcnt(const char *tcnt) {
 
 
 /* parse cli arguments into 'cliargs' */
+<<<<<<< HEAD
 static int parseargs(CliArgs *cliargs, int argc, char **argv) {
 	cf_byte nomoreopts = 0;
 	int nofile = 1;
+=======
+static void parseargs(CFThread *mt, CliArgs *cliargs, int argc, char **argv) {
+	cf_byte nomoreopts = 0;
+>>>>>>> 710ce35c58b15374dfa376ec2d3b48f21d0fd05a
 
 	while (argc-- > 0) {
 		const char *arg = *argv++;
@@ -110,6 +131,7 @@ static int parseargs(CliArgs *cliargs, int argc, char **argv) {
 			if (nomoreopts) 
 				goto addfilepath;
 			switch(arg[1]) {
+<<<<<<< HEAD
 			case '-': 
 				nomoreopts = 1;
 				break;
@@ -127,10 +149,25 @@ static int parseargs(CliArgs *cliargs, int argc, char **argv) {
 			default:
 				werrorf("invalid option '-%c'", arg[1]);
 				return 1;
+=======
+			case '-': nomoreopts = 1; return;
+			case 't':
+				if (arg[2] != '\0')
+					arg = &arg[2];
+				else if (argc-- > 0)
+					arg = *argv++;
+				else
+					cfreqE_error(mt, ERRMSG("option '-t' is missing thread count"));
+				cliargs->nthreads = threadcnt(mt, arg);
+				break;
+			default:
+				cfreqE_error(mt, ERRMSG("invalid option '-%C'"), arg[1]);
+>>>>>>> 710ce35c58b15374dfa376ec2d3b48f21d0fd05a
 			}
 			break;
 		default:
 addfilepath:
+<<<<<<< HEAD
 			nofile = 0; /* got a file */
 			cfreq_addfilepath(cliargs->cfs, arg);
 			break;
@@ -139,6 +176,12 @@ addfilepath:
 	if (nofile)
 		werror("no files provided");
 	return nofile;
+=======
+			cfreqS_addfilelock(mt, arg);
+			break;
+		}
+	}
+>>>>>>> 710ce35c58b15374dfa376ec2d3b48f21d0fd05a
 }
 
 
@@ -179,6 +222,7 @@ static void *cfrealloc(void *block, void *ud, size_t os, size_t ns) {
 }
 
 
+<<<<<<< HEAD
 /* error writer */
 static void cferror(cfreq_State *cfs, const char *msg) {
 	(void)(cfs); /* unused */
@@ -199,10 +243,14 @@ static cf_noret cfpanic(cfreq_State *cfs) {
 
 
 /* cfreq */
+=======
+/* entry */
+>>>>>>> 710ce35c58b15374dfa376ec2d3b48f21d0fd05a
 int main(int argc, char **argv) {
 	int status = EXIT_SUCCESS;
 	char **argsstart = ++argv; /* prevent clobber warning ('setjmp') (GCC) */
 
+<<<<<<< HEAD
 	cfreq_State *cfs = cfreq_newstate(cfrealloc, NULL);
 	if (cf_unlikely(cfs == NULL)) {
 		werror("can't create state");
@@ -219,6 +267,17 @@ int main(int argc, char **argv) {
 		printfreqtable(outtab);
 	} else { /* return from panic handler */
 		status = EXIT_FAILURE;
+=======
+	CFThread *mt = cfreqS_new(threadentry);
+	if (cf_unlikely(mt == NULL)) {
+		writeerror("can't create state");
+		exit(EXIT_FAILURE);
+	}
+	parseargs(mt, &cliargs, --argc, ++argv);
+	if (cliargs.nthreads > 0) {
+		cfreqS_newthreadpool(mt, cliargs.nthreads);
+	} else {
+>>>>>>> 710ce35c58b15374dfa376ec2d3b48f21d0fd05a
 	}
 defer:
 	cfreq_free(cfs);

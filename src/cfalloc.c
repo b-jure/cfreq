@@ -37,7 +37,11 @@ void *cfreqA_realloc(CFThread *th, void *block, size_t osize, size_t nsize)
 {
 	cfreq_State *cfs = th->cfs;
 
+<<<<<<< HEAD
 	block = cfs->frealloc(block, cfs->ud, osize, nsize);
+=======
+	block = cfs->frealloc(block, cfs->frealloc, osize, nsize);
+>>>>>>> 710ce35c58b15374dfa376ec2d3b48f21d0fd05a
 	if (cf_unlikely(block == NULL))
 		cfreqE_memerror(th);
 	return block;
@@ -51,12 +55,17 @@ void *cfreqA_ensurearray_(CFThread *th, void *block, size_t *sizep,
 	size_t size = *sizep;
 
 	if (cf_unlikely(ARRSIZEMAX - nelems < ensure)) /* would overflow? */
+<<<<<<< HEAD
 		cfreqE_errorf(th, "array size limit reached (%N)", ARRSIZEMAX);
+=======
+		cfreqE_error(th, ERRMSG("array size limit reached (%N)"), ARRSIZEMAX);
+>>>>>>> 710ce35c58b15374dfa376ec2d3b48f21d0fd05a
 	ensure += nelems;
 	if (ensure <= size)
 		return block;
 	if (cf_unlikely(size >= ARRSIZEMAX / 2)) {
 		if (cf_unlikely(size >= ARRSIZEMAX))
+<<<<<<< HEAD
 			cfreqE_errorf(th, "array size limit reached (%N)", ARRSIZEMAX);
 		size = ARRSIZEMAX;
 		cf_assert(size >= ARRSIZEMIN);
@@ -65,6 +74,17 @@ void *cfreqA_ensurearray_(CFThread *th, void *block, size_t *sizep,
 			size = ARRSIZEMIN;
 		while (size < ensure)
 			size <<= 1;
+=======
+			cfreqE_error(th, ERRMSG("array size limit reached (%N)"), ARRSIZEMAX);
+		size = ARRSIZEMAX;
+		cf_assert(size >= ARRSIZEMIN);
+	} else {
+		do {
+			size <<= 1;
+		} while (size < ensure);
+		if (cf_unlikely(size < ARRSIZEMIN))
+			size = ARRSIZEMIN;
+>>>>>>> 710ce35c58b15374dfa376ec2d3b48f21d0fd05a
 	}
 	block = cfreqA_realloc(th, block, *sizep * elemsize, size * elemsize);
 	*sizep = size;
@@ -82,7 +102,11 @@ void *cfreqA_growarray_(CFThread *th, void *block, size_t *sizep, size_t nelems,
 		return block;
 	if (cf_unlikely(size >= ARRSIZEMAX / 2)) {
 		if (cf_unlikely(size >= ARRSIZEMAX))
+<<<<<<< HEAD
 			cfreqE_errorf(th, "array size limit reached (%N)", ARRSIZEMAX);
+=======
+			cfreqE_error(th, ERRMSG("array size limit reached (%N)"), ARRSIZEMAX);
+>>>>>>> 710ce35c58b15374dfa376ec2d3b48f21d0fd05a
 		size = ARRSIZEMAX;
 		cf_assert(size >= ARRSIZEMIN);
 	} else {
