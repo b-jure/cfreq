@@ -208,6 +208,7 @@ static void countallfiles(cfreq_State *cfs, CFThread *th)
 
 /* initialize worker thread */
 static void initworker(CFThread *th, cfreq_State *cfs) {
+	cf_assert(!th->mainthread);
 	th->cfs = cfs;
 	th->thread = pthread_self();
 	th->dirs = NULL;
