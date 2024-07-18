@@ -1,3 +1,5 @@
 *.o
 src/*.o
 cfreq
+*.tar
+*.tar.gz

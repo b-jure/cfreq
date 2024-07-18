@@ -5,9 +5,36 @@
 #include <errno.h>
 #include <stdint.h>
 #include <setjmp.h>
-#include <ctype.h>
 
 #include "cfreq.h"
+
+
+
+/* ascii txt + count */
+typedef struct Tuple {
+	const char *asciitxt;
+	size_t count;
+} Tuple;
+
+/* character counts and their ASCII txt */
+static Tuple cfcounts[CFREQ_TABLESIZE] = {
+	{"NULL",0},{"SOH",0},{"STX",0},{"ETX",0},{"EOT",0},{"ENQ",0},{"ACK",0},
+	{"\\a",0},{"\\b",0},{"\\t",0},{"\\n",0},{"\\v",0},{"\\f",0},{"\\r",0},
+	{"SO",0},{"SI",0},{"DLE",0},{"DC1",0},{"DC2",0},{"DC3",0},{"DC4",0},
+	{"NAK",0},{"SYN",0},{"ETB",0},{"CAN",0},{"EM",0},{"SUB",0},{"ESC",0},
+	{"FS",0},{"CFS}",0},{"RS",0},{"US",0},{"SPACE",0},{"!",0},{"\"",0},{"#",0},
+	{"$",0},{"%",0},{"&",0},{"'",0},{"(",0},{")",0},{"*",0},{"+",0},{",",0},
+	{"-",0},{".",0},{"/",0},{"0",0},{"1",0},{"2",0},{"3",0},{"4",0},{"5",0},
+	{"6",0},{"7",0},{"8",0},{"9",0},{":",0},{";",0},{"<",0},{"=",0},{">",0},
+	{"?",0},{"@",0},{"A",0},{"B",0},{"C",0},{"D",0},{"E",0},{"F",0},{"G",0},
+	{"H",0},{"I",0},{"J",0},{"K",0},{"L",0},{"M",0},{"N",0},{"O",0},{"P",0},
+	{"Q",0},{"R",0},{"S",0},{"T",0},{"U",0},{"V",0},{"W",0},{"X",0},{"Y",0},
+	{"Z",0},{"[",0},{"\\",0},{"]",0},{"^",0},{"_",0},{"`",0},{"a",0},{"b",0},
+	{"c",0},{"d",0},{"e",0},{"f",0},{"g",0},{"h",0},{"i",0},{"j",0},{"k",0},
+	{"l",0},{"m",0},{"n",0},{"o",0},{"p",0},{"q",0},{"r",0},{"s",0},{"t",0},
+	{"u",0},{"v",0},{"w",0},{"x",0},{"y",0},{"z",0},{"{",0},{"|",0},{"}",0},
+	{"~",0},{"DEL",0},
+};
 
 
 
@@ -15,7 +42,10 @@
 typedef struct CliArgs {
 	cfreq_State *cfs;
 	int nthreads; /* number of threads '-t' */
+	cf_byte ascii128; /* true if using 7 bit ASCII */
+	char sort; /* sort == 0 (no sort), sort == -1 (rev) sort == 1 (sort) */
 } CliArgs;
+
 
 
 
@@ -26,30 +56,40 @@ typedef struct CliArgs {
 
 
 /* write error */
-#define werror(err) \
-	werrorfmt(err, CFREQ_SRCINFO)
-
+#define cfprinterror(err) \
+	cffwritef(stderr, PROG_NAME ":[%d:%s]: " err ".\n", CFREQ_SRCINFO)
 
 /* write formatted error */
-#define werrorf(fmt, ...) \
-	werrorfmt(fmt, CFREQ_SRCINFO, __VA_ARGS__)
+#define cfprinterrorf(fmt, ...) \
+	cffwritef(stderr, PROG_NAME ":[%d:%s]: " fmt ".\n", CFREQ_SRCINFO, __VA_ARGS__)
+
+/* write to 'stdout' formatted */
+#define cfprintf(fmt, ...)		cffwritef(stdout, fmt, __VA_ARGS__)
 
 
-/*
- * Write to 'stderr'; expects in order: line, source
- * and rest of the args.
- */
-static void werrorfmt(const char *fmt, ...) {
+
+/* write to file stream 'fp' */
+static void cffwritef(FILE *fp, const char *fmt, ...) {
 	va_list ap;
 
 	va_start(ap, fmt);
-	int line = va_arg(ap, int);
-	const char *src = va_arg(ap, const char *);
-	fprintf(stderr, PROG_NAME ": [%d:%s]: ", line, src);
-	vfprintf(stderr, fmt, ap);
-	fputc('\n', stderr);
-	fflush(stderr);
+	vfprintf(fp, fmt, ap);
 	va_end(ap);
+	fflush(fp);
+}
+
+
+
+/* get sort specifier */
+static int sortspecifier(const char *sspec) {
+	if (!strcmp("-1", sspec))
+		return -1;
+	else if (!strcmp("0", sspec))
+		return 0;
+	else if (!strcmp("1", sspec))
+		return 1;
+	cfprinterror("invalid sort specifier (try {-1,0,1})");
+	return -2; /* error */
 }
 
 
@@ -82,26 +122,23 @@ static int clamptocorecount(unsigned long usercnt) {
 
 /* option -t */
 static int threadcnt(const char *tcnt) {
-	static int ncpu = 0;
 	char *endp;
 	errno = 0;
 	unsigned long cnt = strtoul(tcnt, &endp, 10);
 
-	if (errno == ERANGE || endp != NULL || cnt < 1)
-		werror("invalid thread count (in option '-t')");
-	if (ncpu == 0) {
-		ncpu = clamptocorecount(cnt);
-		return (ncpu > (int)cnt ? (int)cnt : ncpu);
-	} else {
-		return ncpu;
+	if (errno == ERANGE || *endp != '\0' || cnt < 1) {
+		cfprinterror("invalid thread count (in option '-t')");
+		return -1;
 	}
+	return clamptocorecount(cnt);
 }
 
 
 /* parse cli arguments into 'cliargs' */
 static int parseargs(CliArgs *cliargs, int argc, char **argv) {
-	cf_byte nomoreopts = 0;
+	size_t i;
 	int nofile = 1;
+	cf_byte nomoreopts = 0;
 
 	while (argc-- > 0) {
 		const char *arg = *argv++;
@@ -109,23 +146,46 @@ static int parseargs(CliArgs *cliargs, int argc, char **argv) {
 		case '-':
 			if (nomoreopts) 
 				goto addfilepath;
-			switch(arg[1]) {
-			case '-': 
+			i = 1;
+moreopts:
+			switch(arg[i]) {
+			case '-':  /* '--' */
 				nomoreopts = 1;
 				break;
-			case 't':
-				if (arg[2] != '\0') {
-					arg = &arg[2];
+			case '7': /* 7-bit ascii */
+				cliargs->ascii128 = 1;
+				if (arg[++i] != '\0') goto moreopts;
+				break;
+			case '8': /* 8-bit ascii */
+				cliargs->ascii128 = 0;
+				if (arg[++i] != '\0') goto moreopts;
+				break;
+			case 's': /* sort */
+				if (arg[++i] != '\0') {
+					arg = &arg[i];
 				} else if (argc-- > 0) {
 					arg = *argv++;
 				} else {
-					werror("option 't' is missing thread count");
+					cfprinterror("option 's' is missing sort specifier");
+					return 1;
+				}
+				cliargs->sort = sortspecifier(arg);
+				if (cliargs->sort < -1) return 1;
+				break;
+			case 't': /* thread count */
+				if (arg[++i] != '\0') {
+					arg = &arg[i];
+				} else if (argc-- > 0) {
+					arg = *argv++;
+				} else {
+					cfprinterror("option 't' is missing thread count");
 					return 1;
 				}
 				cliargs->nthreads = threadcnt(arg);
+				if (cliargs->nthreads < 0) return 1;
 				break;
 			default:
-				werrorf("invalid option '-%c'", arg[1]);
+				cfprinterrorf("unknown option '-%c'", arg[i]);
 				return 1;
 			}
 			break;
@@ -137,36 +197,60 @@ addfilepath:
 		}
 	}
 	if (nofile)
-		werror("no files provided");
+		cfprinterror("no files provided");
 	return nofile;
 }
 
 
-/* auxiliary to 'printfreqtable' */
-static int printspecial(size_t *freqtable) {
-	const char *special[] = {
-		"NULL", "SOH", "STX", "ETX", "EOT", "ENQ", "ACK",
-		"\\a", "\\b", "\\t", "\\n", "\\v", "\\f", "\\r",
-		"SO", "SI", "DLE", "DC1", "DC2", "DC3",	"DC4",
-		"NAK", "SYN", "ETB", "CAN", "EM", "SUB", "ESC",
-		"FS", "cfs", "RS", "US"
-	};
-	unsigned int i;
+/* 'cfqsort' cmp fn */
+typedef cf_byte (*cfCmpFn)(size_t lhs, size_t rhs);
 
-	for (i = 0; i < sizeof(special)/sizeof(special[0]); i++)
-		fprintf(stdout, "%-4s : %zu\n", special[i], freqtable[i]);
-	return i;
+
+/* comparison funcs */
+static inline cf_byte cfqsortcmp(size_t lhs, size_t rhs) { return lhs >= rhs; }
+static inline cf_byte cfqsortcmpr(size_t lhs, size_t rhs) { return lhs < rhs; }
+
+
+/* auxiliary swap function for 'cfqsort' */
+static inline void cfswap(Tuple *a, Tuple *b) {
+	Tuple temp = *a;
+	*a = *b;
+	*b = temp;
+}
+
+
+/* quicksort */
+static void cfqsort(Tuple *v, size_t start, size_t end, cfCmpFn fcmp) {
+	if (start >= end) return;
+	cfswap(&v[start], &v[(start + end) / 2]);
+	size_t last = start;
+	for (size_t i = last + 1; i <= end; i++)
+		if ((*fcmp)(v[start].count, v[i].count))
+			cfswap(&v[++last], &v[i]);
+	cfswap(&v[start], &v[last]);
+	if (last > start) cfqsort(v, start, last - 1, fcmp);
+	cfqsort(v, last + 1, end, fcmp);
+}
+
+
+static void sortcfcounts(char sort) {
+	if (sort == 0) return;
+	cfCmpFn cmp = (sort < 0 ? cfqsortcmpr : cfqsortcmp);
+	cfqsort(cfcounts, 0, CFREQ_TABLESIZE - 1, cmp);
 }
 
 
 /* print 'freqtable' */
-static void printfreqtable(size_t *freqtable) {
-	for (int i = printspecial(freqtable); i < CFREQ_TABLESIZE; i++)
-			fprintf(stdout, "%-4c : %zu\n", isgraph(i) ? i : '?', freqtable[i]);
-	fflush(stdout);
+static void printcfcounts(int all) {
+	for (size_t i = 0; i < CFREQ_TABLESIZE; i++) {
+		Tuple *t = &cfcounts[i];
+		if (!t->asciitxt && !all) continue;
+		cfprintf("%-5s  %zu\n", (t->asciitxt ? t->asciitxt : "?"), t->count);
+	}
 }
 
 
+/* allocator */
 static void *cfrealloc(void *block, void *ud, size_t os, size_t ns) {
 	(void)(ud); /* unused */
 	(void)(os); /* unused */
@@ -187,7 +271,7 @@ static void cferror(cfreq_State *cfs, const char *msg) {
 }
 
 
-/* error recovery */
+/* error recovery to properly cleanup state */
 static jmp_buf jmp;
 
 
@@ -198,28 +282,34 @@ static cf_noret cfpanic(cfreq_State *cfs) {
 }
 
 
+/* set 'cfcounts' tuple.counts */
+static inline void setcfcounts(size_t *counts) {
+	for (size_t i = 0; i < CFREQ_TABLESIZE; i++)
+		cfcounts[i].count = counts[i];
+}
+
+
 /* cfreq */
 int main(int argc, char **argv) {
+	size_t counts[CFREQ_TABLESIZE] = { 0 };
 	int status = EXIT_SUCCESS;
 	char **argsstart = ++argv; /* prevent clobber warning ('setjmp') (GCC) */
 
 	cfreq_State *cfs = cfreq_newstate(cfrealloc, NULL);
-	if (cf_unlikely(cfs == NULL)) {
-		werror("can't create state");
-		cfdefer(EXIT_FAILURE);
+	if (cfs == NULL) {
+		cfprinterror("failed creating state");
+		exit(EXIT_FAILURE);
 	}
 	cfreq_seterror(cfs, cferror);
 	cfreq_setpanic(cfs, cfpanic);
-	if (setjmp(jmp) == 0) {
-		size_t outtab[CFREQ_TABLESIZE] = { 0 };
-		CliArgs cliargs = { .cfs = cfs };
-		if (parseargs(&cliargs, --argc, argsstart) != 0)
-			cfdefer(EXIT_FAILURE);
-		cfreq_count(cfs, cliargs.nthreads, outtab);
-		printfreqtable(outtab);
-	} else { /* return from panic handler */
-		status = EXIT_FAILURE;
-	}
+	if (setjmp(jmp) != 0) cfdefer(EXIT_FAILURE);
+	CliArgs cliargs = { .cfs = cfs };
+	if (parseargs(&cliargs, --argc, argsstart) != 0)
+		cfdefer(EXIT_FAILURE);
+	cfreq_count(cfs, cliargs.nthreads, counts);
+	setcfcounts(counts);
+	sortcfcounts(cliargs.sort);
+	printcfcounts(!cliargs.ascii128);
 defer:
 	cfreq_free(cfs);
 	return status;

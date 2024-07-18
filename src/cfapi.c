@@ -83,6 +83,6 @@ cfreq_count(cfreq_State *cfs, size_t nthreads, size_t dest[CFREQ_TABLESIZE]) {
 		cfreqS_count(cfs);
 	else
 		cfreqS_countthreaded(cfs, nthreads);
-	memcpy(dest, cfs->freqtable, CFREQ_TABLESIZE);
+	memcpy(dest, cfs->freqtable, sizeof(cfs->freqtable));
 	cfreqS_resetstate(cfs);
 }

@@ -142,6 +142,7 @@ static const cf_byte *fillfilebuf(FileBuf *fb) {
 	cf_assert(fb->n == 0 && fb->current != NULL);
 	if (feof(fb->fp)) return (fb->current = NULL);
 	fb->n = fread(fb->buf, 1, sizeof(fb->buf), fb->fp);
+	if (fb->n == 0) return (fb->current = NULL);
 	return (fb->current = fb->buf);
 }
 
@@ -169,7 +170,7 @@ static void addtables(CFThread *th, size_t *dest, size_t *src, size_t size) {
 /* count chars in regular file */
 static void countfile(cfreq_State *cfs, CFThread *th, const char *filepath)
 {
-	CFREQTABLE(filetable);
+	CFREQTABLE(filetable) = { 0 };
 	FileBuf fb;
 	struct stat st;
 	int c;
@@ -256,7 +257,6 @@ void cfreqS_countthreaded(cfreq_State *cfs, size_t nthreads)
 	CFThread th;
 	int res;
 
-	printf("counting with %zu threads\n", nthreads);
 	cfs->errworker = 0;
 	/* thread pool must be empty */
 	cf_assert(nthreads > 0 && cfs->sizeth == 0 && cfs->threadsact == 0);
@@ -303,7 +303,6 @@ void cfreqS_count(cfreq_State *cfs) {
 static void resetfilelocks(cfreq_State *cfs) {
 	cf_assert(MT_(cfs)->statelock);
 	for (size_t i = 0; i < cfs->nflocks; i++) {
-		printf("FILE: '%s'\n", cfs->flocks[i].filepath);
 		char *filepath = cfs->flocks[i].filepath;
 		cfreqA_free(cfs, filepath, strlen(filepath) + 1);
 	}

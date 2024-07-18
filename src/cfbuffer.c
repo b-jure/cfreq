@@ -95,8 +95,6 @@ char *cf_strdup(CFThread *th, const char *str) {
 	cf_assert(str != NULL);
 	size_t len = strlen(str);
 	char *new = cfreqA_malloc(th, len + 1);
-	printf("%p\n", new);
-	cf_assert(0);
 	memcpy(new, str, len);
 	new[len] = '\0';
 	return new;

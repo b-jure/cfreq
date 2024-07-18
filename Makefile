@@ -31,7 +31,7 @@ clean:
 
 dist: clean
 	mkdir -p ${BIN}-${VERSION}
-	cp -r COPYING Makefile README config.mk \
+	cp -r COPYING Makefile README.md config.mk \
 		${BIN}.1 ${SRC} ${BIN}-${VERSION}
 	tar -cf ${BIN}-${VERSION}.tar ${BIN}-${VERSION}
 	gzip ${BIN}-${VERSION}.tar
