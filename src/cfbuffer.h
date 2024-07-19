@@ -6,6 +6,10 @@
 #include "cfstate.h"
 
 
+#define bufpop(b)		((b)->str[--(b)->len])
+#define buflast(b)		((b)->str[(b)->len - 1])
+
+
 void initbuf(CFThread *th, Buffer *buf);
 void freebuf(CFThread *th, Buffer *buf);
 void int2buff(CFThread *th, Buffer *buf, int i);

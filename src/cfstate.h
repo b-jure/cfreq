@@ -101,7 +101,7 @@ typedef struct FileLock {
 /* global state */
 struct cfreq_State {
 	CFThread mainthread;
-	CFThread *workerthreads; /* thread pool */
+	CFThread **workerthreads; /* thread pool */
 	FileLock *flocks; /* filepaths with a flag acting as a lock */
 	cfreq_fRealloc frealloc; /* allocator */
 	void *ud; /* userdata for 'frealloc' */

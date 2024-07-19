@@ -84,8 +84,10 @@ void buffpoppath(Buffer *buf, cf_byte popsep) {
 
 /* free buffer memory */
 void freebuf(CFThread *th, Buffer *buf) {
-	if (buf->str)
+	if (buf->size > 0) {
+		cf_assert(buf->str != NULL);
 		cfreqA_freearray(th, buf->str, buf->size);
+	}
 	buf->str = NULL; buf->size = buf->len = 0;
 }
 

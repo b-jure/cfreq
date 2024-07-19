@@ -10,7 +10,7 @@ INCS =
 LIBS = -lpthread
 
 # optimizations 
-#OPTS = -O2
+OPTS = -O2
 
 # debug defines and 
 DDEFS = -DCF_ASSERT

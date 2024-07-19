@@ -4,7 +4,7 @@
 #include <stdarg.h>
 #include <errno.h>
 #include <stdint.h>
-#include <setjmp.h>
+#include <time.h>
 
 #include "cfreq.h"
 
@@ -43,6 +43,8 @@ typedef struct CliArgs {
 	cfreq_State *cfs;
 	int nthreads; /* number of threads '-t' */
 	cf_byte ascii128; /* true if using 7 bit ASCII */
+	cf_byte clock; /* use clock (time the execution) */
+	cf_byte nums; /* show only numbers (counts) */
 	char sort; /* sort == 0 (no sort), sort == -1 (rev) sort == 1 (sort) */
 } CliArgs;
 
@@ -134,6 +136,11 @@ static int threadcnt(const char *tcnt) {
 }
 
 
+
+/* check if we have more opts */
+#define jmpifhaveopt(arg,i,l)		if (arg[++i] != '\0') goto l
+
+
 /* parse cli arguments into 'cliargs' */
 static int parseargs(CliArgs *cliargs, int argc, char **argv) {
 	size_t i;
@@ -152,9 +159,17 @@ moreopts:
 			case '-':  /* '--' */
 				nomoreopts = 1;
 				break;
+			case 'n': /* show only numbers (counts ) */
+				cliargs->nums = 1;
+				jmpifhaveopt(arg, i, moreopts);
+				break;
+			case 'c': /* cpu clock */
+				cliargs->clock = 1;
+				jmpifhaveopt(arg, i, moreopts);
+				break;
 			case '7': /* 7-bit ascii */
 				cliargs->ascii128 = 1;
-				if (arg[++i] != '\0') goto moreopts;
+				jmpifhaveopt(arg, i, moreopts);
 				break;
 			case '8': /* 8-bit ascii */
 				cliargs->ascii128 = 0;
@@ -241,11 +256,14 @@ static void sortcfcounts(char sort) {
 
 
 /* print 'freqtable' */
-static void printcfcounts(int all) {
+static void printcfcounts(cf_byte all, cf_byte noascii) {
 	for (size_t i = 0; i < CFREQ_TABLESIZE; i++) {
 		Tuple *t = &cfcounts[i];
 		if (!t->asciitxt && !all) continue;
-		cfprintf("%-5s  %zu\n", (t->asciitxt ? t->asciitxt : "?"), t->count);
+		if (!noascii)
+			cfprintf("%-5s  %zu\n", (t->asciitxt ? t->asciitxt : "?"), t->count);
+		else
+			cfprintf("%zu\n", t->count);
 	}
 }
 
@@ -271,14 +289,10 @@ static void cferror(cfreq_State *cfs, const char *msg) {
 }
 
 
-/* error recovery to properly cleanup state */
-static jmp_buf jmp;
-
-
 /* panic handler */
 static cf_noret cfpanic(cfreq_State *cfs) {
-	(void)(cfs); /* unused */
-	longjmp(jmp, 1);
+	cfreq_free(cfs);
+	exit(EXIT_FAILURE);
 }
 
 
@@ -289,11 +303,16 @@ static inline void setcfcounts(size_t *counts) {
 }
 
 
+/* print how much time it took to count */
+static inline void printelapsed(cf_byte print, time_t diff) {
+	if (print) cfprintf("\nTook ~ [%g seconds]\n", diff / (double)CLOCKS_PER_SEC);
+}
+
+
 /* cfreq */
 int main(int argc, char **argv) {
 	size_t counts[CFREQ_TABLESIZE] = { 0 };
 	int status = EXIT_SUCCESS;
-	char **argsstart = ++argv; /* prevent clobber warning ('setjmp') (GCC) */
 
 	cfreq_State *cfs = cfreq_newstate(cfrealloc, NULL);
 	if (cfs == NULL) {
@@ -302,14 +321,16 @@ int main(int argc, char **argv) {
 	}
 	cfreq_seterror(cfs, cferror);
 	cfreq_setpanic(cfs, cfpanic);
-	if (setjmp(jmp) != 0) cfdefer(EXIT_FAILURE);
 	CliArgs cliargs = { .cfs = cfs };
-	if (parseargs(&cliargs, --argc, argsstart) != 0)
+	if (parseargs(&cliargs, --argc, ++argv) != 0)
 		cfdefer(EXIT_FAILURE);
+	time_t tick = clock();
 	cfreq_count(cfs, cliargs.nthreads, counts);
+	time_t tock = clock();
 	setcfcounts(counts);
 	sortcfcounts(cliargs.sort);
-	printcfcounts(!cliargs.ascii128);
+	printcfcounts(!cliargs.ascii128, cliargs.nums);
+	printelapsed(cliargs.clock, tock - tick);
 defer:
 	cfreq_free(cfs);
 	return status;
