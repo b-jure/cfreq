@@ -3,7 +3,6 @@
 
 #include "cfreq.h"
 #include "cfstate.h"
-#include "cferror.h"
 
 
 
@@ -29,8 +28,10 @@ cfreq_newstate(cfreq_fRealloc frealloc, void *ud) {
 	cfs->threadsact = 0;
 	cfs->sizefl = 0;
 	cfs->nflocks = 0;
+	cfs->condvar = 0;
 	pthread_mutex_init(&cfs->statemutex, NULL);
 	pthread_cond_init(&cfs->statecond, NULL);
+	pthread_cond_init(&cfs->workercond, NULL);
 	cfs->errworker = 0;
 	return cfs;
 }
@@ -42,12 +43,10 @@ cfreq_free(cfreq_State *cfs) {
 	lockstatemutex(mt);
 	cfreqS_resetstate(cfs);
 	unlockstatemutex(mt);
-	int res = pthread_mutex_destroy(&cfs->statemutex);
-	if (cf_unlikely(res != 0))
-		cfreqE_pthreaderror(mt, "pthread_mutex_destory", res);
-	res = pthread_cond_destroy(&cfs->statecond);
-	if (cf_unlikely(res != 0))
-		cfreqE_pthreaderror(mt, "pthread_cond_destroy", res);
+	/* ignore errors, state closing can't fail */
+	pthread_mutex_destroy(&cfs->statemutex);
+	pthread_cond_destroy(&cfs->statecond);
+	pthread_cond_destroy(&cfs->workercond);
 	cfs->frealloc(cfs, cfs->ud, STATESIZE, 0);
 }
 
@@ -77,9 +76,16 @@ cfreq_addfilepath(cfreq_State *cfs, const char *filepath) {
 
 CFREQ_API void
 cfreq_count(cfreq_State *cfs, size_t nthreads, size_t dest[CFREQ_TABLESIZE]) {
+	CFThread *mt = MT_(cfs);
 	nthreads = (nthreads == 0 ? 1 : nthreads);
-	if (nthreads == 1) cfreqS_count(cfs);
-	else cfreqS_countthreaded(cfs, nthreads);
-	memcpy(dest, MT_(cfs)->counts, sizeof(MT_(cfs)->counts));
+	cf_logf("counting with %zu thread/s", nthreads);
+	if (nthreads == 1) 
+		cfreqS_count(cfs);
+	else 
+		cfreqS_countthreaded(cfs, nthreads);
+	cf_log("copying over the total count");
+	memcpy(dest, mt->counts, sizeof(mt->counts));
+	/* mutex lock is held here */
 	cfreqS_resetstate(cfs);
+	unlockstatemutex(mt);
 }

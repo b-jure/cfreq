@@ -1,17 +1,6 @@
 ## About
 Reads files (or all the files in directory if provided, recursively) and
-aggregates character occurrences (8 bit ASCII).
-After `cfreq` command specify files/directories you would like to count character
-occurrences for.
-It is multithreaded so you can specify how many worker threads you would
-like to use with `-t` flag, keep in mind that this number will be clamped
-automatically to the number of online CPU cores your system has.
-By omitting the `-t` flag or specifying `1` as the thread count, `cfreq` will
-run on a single thread.
-Doubt this will prove to be useful to anyone, I just made it in order to
-generate ASCII tables for Huffman encoding tree in my compression program.
-Also I doubt this is portable outside of systems currently running
-GNU/Linux.
+aggregates character occurrences (8/7 bit ASCII).
 
 ## Build & Install
 Before building/installing edit `config.mk` to your needs.
@@ -35,3 +24,4 @@ Same as above but this will spawn `8` worker threads if possible.
 cfreq -t 8 mydir myfile.txt mysrcfile.c
 ```
 ---
+For complete usage run the program with no additional arguments.

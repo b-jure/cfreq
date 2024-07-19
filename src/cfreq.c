@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE		199309L
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -43,7 +45,8 @@ typedef struct CliArgs {
 	cfreq_State *cfs;
 	int nthreads; /* number of threads '-t' */
 	cf_byte ascii128; /* true if using 7 bit ASCII */
-	cf_byte clock; /* use clock (time the execution) */
+	cf_byte cpuclock; /* use cpu clock */
+	cf_byte monoclock; /* use monotonic clock */
 	cf_byte nums; /* show only numbers (counts) */
 	char sort; /* sort == 0 (no sort), sort == -1 (rev) sort == 1 (sort) */
 } CliArgs;
@@ -59,14 +62,17 @@ typedef struct CliArgs {
 
 /* write error */
 #define cfprinterror(err) \
-	cffwritef(stderr, PROG_NAME ":[%d:%s]: " err ".\n", CFREQ_SRCINFO)
+	cffwritef(stderr, PROG_NAME ": " err ".\n")
 
 /* write formatted error */
 #define cfprinterrorf(fmt, ...) \
-	cffwritef(stderr, PROG_NAME ":[%d:%s]: " fmt ".\n", CFREQ_SRCINFO, __VA_ARGS__)
+	cffwritef(stderr, PROG_NAME ": " fmt ".\n", __VA_ARGS__)
 
 /* write to 'stdout' formatted */
 #define cfprintf(fmt, ...)		cffwritef(stdout, fmt, __VA_ARGS__)
+
+/* write to 'stdout' */
+#define cfprint(msg)			cffwritef(stdout, msg)
 
 
 
@@ -159,12 +165,16 @@ moreopts:
 			case '-':  /* '--' */
 				nomoreopts = 1;
 				break;
-			case 'n': /* show only numbers (counts ) */
+			case 'n': /* show only numbers (counts) */
 				cliargs->nums = 1;
 				jmpifhaveopt(arg, i, moreopts);
 				break;
 			case 'c': /* cpu clock */
-				cliargs->clock = 1;
+				cliargs->cpuclock = 1;
+				jmpifhaveopt(arg, i, moreopts);
+				break;
+			case 'm': /* monotonic clock */
+				cliargs->monoclock = 1;
 				jmpifhaveopt(arg, i, moreopts);
 				break;
 			case '7': /* 7-bit ascii */
@@ -265,6 +275,7 @@ static void printcfcounts(cf_byte all, cf_byte noascii) {
 		else
 			cfprintf("%zu\n", t->count);
 	}
+	cfprint("\n");
 }
 
 
@@ -303,14 +314,37 @@ static inline void setcfcounts(size_t *counts) {
 }
 
 
-/* print how much time it took to count */
-static inline void printelapsed(cf_byte print, time_t diff) {
-	if (print) cfprintf("\nTook ~ [%g seconds]\n", diff / (double)CLOCKS_PER_SEC);
+/* print how much cpu time it took to count */
+static inline void printcpuclock(time_t stop, time_t start) {
+	double elapsed = (double)(stop - start) / (double)CLOCKS_PER_SEC;
+	cfprintf("cpu time ~ [%g seconds]\n", elapsed);
+}
+
+
+/* print how much wall-clock time it took to count */
+static inline void printmonoclock(struct timespec *stop, struct timespec *start) {
+	double elapsed = stop->tv_sec - start->tv_sec;
+	elapsed += (stop->tv_nsec - start->tv_nsec) / 1000000000.0;
+	cfprintf("real time ~ [%g seconds]\n", elapsed);
+}
+
+
+/* print usage */
+static void printusage(void) {
+	cfprint("cfreq [-t[cnt],-n,-c,-m,-7,-8,-s[sort]]\n"
+			"\t-t  specify thread 'cnt'\n"
+			"\t-n  show only counts (numbers)\n"
+			"\t-c  show elapsed cpu time\n"
+			"\t-m  show elapsed monotonic time\n"
+			"\t-7  count 7 bit ASCII\n"
+			"\t-8  count 8 bit ASCII\n"
+			"\t-s  sort the results -1 reverse, 0 no sort, 1 sort\n");
 }
 
 
 /* cfreq */
 int main(int argc, char **argv) {
+	struct timespec start, stop;
 	size_t counts[CFREQ_TABLESIZE] = { 0 };
 	int status = EXIT_SUCCESS;
 
@@ -322,15 +356,20 @@ int main(int argc, char **argv) {
 	cfreq_seterror(cfs, cferror);
 	cfreq_setpanic(cfs, cfpanic);
 	CliArgs cliargs = { .cfs = cfs };
-	if (parseargs(&cliargs, --argc, ++argv) != 0)
+	if (parseargs(&cliargs, --argc, ++argv) != 0) {
+		printusage();
 		cfdefer(EXIT_FAILURE);
+	}
+	clock_gettime(CLOCK_MONOTONIC, &start);
 	time_t tick = clock();
 	cfreq_count(cfs, cliargs.nthreads, counts);
 	time_t tock = clock();
+	clock_gettime(CLOCK_MONOTONIC, &stop);
 	setcfcounts(counts);
 	sortcfcounts(cliargs.sort);
 	printcfcounts(!cliargs.ascii128, cliargs.nums);
-	printelapsed(cliargs.clock, tock - tick);
+	if (cliargs.cpuclock) printcpuclock(tock, tick);
+	if (cliargs.monoclock) printmonoclock(&stop, &start);
 defer:
 	cfreq_free(cfs);
 	return status;

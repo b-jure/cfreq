@@ -12,10 +12,15 @@
 
 /* panic */
 static cf_noret cfreq_panic(cfreq_State *cfs, CFThread *th) {
-	if (th->dead) { /* couldn't allocate worker thread ? */
+	if (th->dead || !th->mainthread) {
 		th->cfs->errworker = 1;
-		pthread_exit(NULL);
-	} else if (th->mainthread) { /* error in mainthread ? */
+		pthread_cond_signal(&cfs->statecond); /* in case thread is waiting */
+		if (th->dead)
+			pthread_exit(NULL);
+		else
+			cfreqS_freeworker(cfs, th);
+	} else { /* error in mainthread */
+		cf_assert(th->mainthread);
 		freebuf(th, &th->buf);
 		cfreqS_closemtdirs(th);
 		if (cfs->fpanic) {
@@ -23,9 +28,6 @@ static cf_noret cfreq_panic(cfreq_State *cfs, CFThread *th) {
 			cfs->fpanic(cfs);
 		}
 		abort();
-	} else { /* worker thread errored */
-		th->cfs->errworker = 1;
-		cfreqS_freeworker(cfs, th);
 	}
 }
 

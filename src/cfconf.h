@@ -21,7 +21,7 @@
 /* enable logging */
 #if defined(CF_LOG)
 #define cf_log(msg)					fputs("cfreq: " msg ".\n", stderr)
-#define cf_logf(fmt, ...)			fprintf(stderr, "cfreq: " msg ".\n", __VA_ARGS__)
+#define cf_logf(fmt, ...)			fprintf(stderr, "cfreq: " fmt ".\n", __VA_ARGS__)
 #else
 #define cf_log(msg)					((void)0)
 #define cf_logf(fmt, ...)			((void)0)
@@ -61,6 +61,12 @@
 /* signature for core library functions */
 #if !defined(CFREQ_API)
 #define CFREQ_API			extern
+#endif
+
+
+/* buffer size when reading files */
+#if !defined(CF_BUFSIZ)
+#define CF_BUFSIZ			(4096 * 10)
 #endif
 
 

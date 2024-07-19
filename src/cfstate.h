@@ -36,10 +36,10 @@
 	      pthread_mutex_unlock(&S_(th)->statemutex); } }
 
 
-/* wait on 'statecond' */
-#define waitstatecond(th) \
+/* wait on condition variable 'cond' */
+#define waitcond(th, cond) \
 	{ cf_assert((th)->statelock); (th)->statelock = 0; \
-	  pthread_cond_wait(&S_(th)->statecond, &S_(th)->statemutex); \
+	  pthread_cond_wait(cond, &S_(th)->statemutex); \
 	  (th)->statelock = 1; }
 
 
@@ -76,7 +76,7 @@ typedef struct Buffer { /* functions in 'cfbuffer.c' */
 
 /* thread context */
 typedef struct CFThread {
-	struct cfreq_State *cfs;
+	struct cfreq_State *cfs; /* state */
 	CFREQTABLE(counts); /* character counts */
 	pthread_t thread; /* the thread itself */
 	Buffer buf; /* buffer for filepaths */
@@ -85,7 +85,7 @@ typedef struct CFThread {
 	size_t sizedirs; /* size of 'dirs' */
 	cf_byte mainthread; /* true if this is mainthread */
 	cf_byte dead; /* true if thread is dead */
-	cf_byte statelock;
+	cf_byte statelock; /* true if holding lock on state mutex */
 } CFThread;
 
 
@@ -112,9 +112,11 @@ struct cfreq_State {
 	size_t nthreads; /* number of elements in 'threads' */
 	size_t threadsact; /* number of active threads */
 	size_t sizefl; /* size of 'flocks' */
+	size_t condvar; /* condition variable (for synchronization)  */
 	volatile size_t nflocks; /* number of elements in 'flocks' */
 	pthread_mutex_t statemutex; /* state access mutex */
 	pthread_cond_t statecond; /* state condition */
+	pthread_cond_t workercond; /* state condition */
 	volatile cf_byte errworker; /* true if any of the worker threads errored */
 };
 

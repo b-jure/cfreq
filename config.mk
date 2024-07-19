@@ -13,13 +13,13 @@ LIBS = -lpthread
 OPTS = -O2
 
 # debug defines and 
-DDEFS = -DCF_ASSERT -DCF_LOG
-DCFLAGS = -fsanitize=address -fsanitize=undefined -g
-DLDFLAGS = -fsanitize=address -fsanitize=undefined
+#DDEFS = -DCF_ASSERT -DCF_LOG
+#DCFLAGS = -fsanitize=address -fsanitize=undefined -g
+#DLDFLAGS = -fsanitize=address -fsanitize=undefined
 
 # flags
 CPPFLAGS =
-CFLAGS   = -std=c99 -Wpedantic -Wall -Wextra ${DCFLAGS} ${OPTS} ${INCS} ${CPPFLAGS}
+CFLAGS   = -std=c99 -Wpedantic -Wall -Wextra ${DDEFS} ${DCFLAGS} ${OPTS} ${INCS} ${CPPFLAGS}
 LDFLAGS  = ${LIBS} ${DLDFLAGS}
 
 # compiler and linker
