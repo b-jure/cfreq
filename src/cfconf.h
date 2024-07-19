@@ -18,6 +18,16 @@
 #endif
 
 
+/* enable logging */
+#if defined(CF_LOG)
+#define cf_log(msg)					fputs("cfreq: " msg ".\n", stderr)
+#define cf_logf(fmt, ...)			fprintf(stderr, "cfreq: " msg ".\n", __VA_ARGS__)
+#else
+#define cf_log(msg)					((void)0)
+#define cf_logf(fmt, ...)			((void)0)
+#endif
+
+
 /* branch reordering */
 #if defined(__GNUC__)
 #define cf_likely(e)		__builtin_expect((e) != 0, 1)

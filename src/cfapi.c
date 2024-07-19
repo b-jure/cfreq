@@ -29,7 +29,6 @@ cfreq_newstate(cfreq_fRealloc frealloc, void *ud) {
 	cfs->threadsact = 0;
 	cfs->sizefl = 0;
 	cfs->nflocks = 0;
-	memset(cfs->freqtable, 0, sizeof(cfs->freqtable));
 	pthread_mutex_init(&cfs->statemutex, NULL);
 	pthread_cond_init(&cfs->statecond, NULL);
 	cfs->errworker = 0;
@@ -79,10 +78,8 @@ cfreq_addfilepath(cfreq_State *cfs, const char *filepath) {
 CFREQ_API void
 cfreq_count(cfreq_State *cfs, size_t nthreads, size_t dest[CFREQ_TABLESIZE]) {
 	nthreads = (nthreads == 0 ? 1 : nthreads);
-	if (nthreads == 1)
-		cfreqS_count(cfs);
-	else
-		cfreqS_countthreaded(cfs, nthreads);
-	memcpy(dest, cfs->freqtable, sizeof(cfs->freqtable));
+	if (nthreads == 1) cfreqS_count(cfs);
+	else cfreqS_countthreaded(cfs, nthreads);
+	memcpy(dest, MT_(cfs)->counts, sizeof(MT_(cfs)->counts));
 	cfreqS_resetstate(cfs);
 }

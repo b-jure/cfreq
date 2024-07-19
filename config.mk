@@ -13,7 +13,7 @@ LIBS = -lpthread
 OPTS = -O2
 
 # debug defines and 
-DDEFS = -DCF_ASSERT
+DDEFS = -DCF_ASSERT -DCF_LOG
 DCFLAGS = -fsanitize=address -fsanitize=undefined -g
 DLDFLAGS = -fsanitize=address -fsanitize=undefined
 

@@ -77,8 +77,8 @@ void buffpoppath(Buffer *buf, cf_byte popsep) {
 		if (buf->str[i] == CF_PATHSEP)
 			sep = &buf->str[i];
 	}
-	if (sep)
-		buf->len = sep - buf->str + 1 + !popsep;
+	if (sep && sep - buf->str > 1)
+		buf->len = sep - buf->str + !popsep;
 }
 
 

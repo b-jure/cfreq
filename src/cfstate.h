@@ -77,6 +77,7 @@ typedef struct Buffer { /* functions in 'cfbuffer.c' */
 /* thread context */
 typedef struct CFThread {
 	struct cfreq_State *cfs;
+	CFREQTABLE(counts); /* character counts */
 	pthread_t thread; /* the thread itself */
 	Buffer buf; /* buffer for filepaths */
 	DIR **dirs; /* open directory streams */
@@ -112,7 +113,6 @@ struct cfreq_State {
 	size_t threadsact; /* number of active threads */
 	size_t sizefl; /* size of 'flocks' */
 	volatile size_t nflocks; /* number of elements in 'flocks' */
-	CFREQTABLE(freqtable); /* character frequencies table */
 	pthread_mutex_t statemutex; /* state access mutex */
 	pthread_cond_t statecond; /* state condition */
 	volatile cf_byte errworker; /* true if any of the worker threads errored */
