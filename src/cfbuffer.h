@@ -1,3 +1,8 @@
+/*****************************************
+ * Copyright (C) 2024 Jure B.
+ * Refer to 'cfreq.h' for license details.
+ *****************************************/
+
 #ifndef CFBUFFER_H
 #define CFBUFFER_H
 

@@ -1,3 +1,8 @@
+/*****************************************
+ * Copyright (C) 2024 Jure B.
+ * Refer to 'cfreq.h' for license details.
+ *****************************************/
+
 #define _POSIX_C_SOURCE		199309L
 
 #include <stdio.h>

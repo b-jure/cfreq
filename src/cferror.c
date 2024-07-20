@@ -1,3 +1,8 @@
+/*****************************************
+ * Copyright (C) 2024 Jure B.
+ * Refer to 'cfreq.h' for license details.
+ *****************************************/
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdarg.h>
