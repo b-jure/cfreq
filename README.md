@@ -1,30 +1,30 @@
-## About
-Reads files (or all the files in directory if provided, recursively) and
-aggregates character occurrences (7 or 8 bit ASCII).
-Written in C (C99).
-
-## Dependencies
-- `libpthread`
-
-## Build & Install
-#### Build as binary
+### About
+Reads files (or all the files inside of directory if provided, recursively) and
+aggregates character occurrences. This comes as a single binary file or can be
+built as shared library or an archive, it provides basic API for easy embedding.
+Entirely written in C (C99).
+### Dependencies
+- `libpthread` (should already be on your system)
+### Build binary
 Edit `config.mk` to your needs and then build/install:
 ```sh
 git clone https://github.com/b-jure/cfreq.git
 cd cfreq
-make
-make install # add sudo in front if needed
+make # build
+make install # install (add sudo in front if needed)
 ```
-#### Building as shared library
+### Building shared library
 ```sh
-make library
-make install-library
+make library # build
+make install-library # install
 ```
-#### Building as archive
 ```sh
-make archive
+make uninstall-library # uninstall
 ```
-
+### Building archive
+```sh
+make archive # build
+```
 ## Example usage binary
 This will scan all the contents of directory `mydir` recursively, it will also
 scan the regular file `myfile.txt` and finally `mysrcfile.c`.
@@ -37,16 +37,14 @@ Same as above but this will spawn `8` worker threads if possible.
 cfreq -t 8 mydir myfile.txt mysrcfile.c
 ```
 ---
-For complete usage run the program with no additional arguments.
-
-
+For complete usage run the program with no additional arguments or refer to the
+manual page.
 ## Example library API
 This counts character frequencies of all files under `/home` directory recursively
 using `6` worker threads, returning the result into static `counts`.
 ```c
 #include <stdlib.h>
-
-#include "cfreq.h"
+#include <cfreq.h>
 
 static size_t counts[CFREQ_TABLESIZE] = { 0 };
 

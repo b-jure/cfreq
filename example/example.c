@@ -1,6 +1,5 @@
 #include <stdlib.h>
-
-#include "cfreq.h"
+#include <cfreq.h>
 
 static size_t counts[CFREQ_TABLESIZE] = { 0 };
 
