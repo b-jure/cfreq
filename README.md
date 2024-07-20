@@ -25,7 +25,7 @@ make uninstall-library # uninstall
 ```sh
 make archive # build
 ```
-## Example usage binary
+### Example usage binary
 This will scan all the contents of directory `mydir` recursively, it will also
 scan the regular file `myfile.txt` and finally `mysrcfile.c`.
 ```sh
@@ -39,7 +39,7 @@ cfreq -t 8 mydir myfile.txt mysrcfile.c
 ---
 For complete usage run the program with no additional arguments or refer to the
 manual page.
-## Example library API
+### Example library API
 This counts character frequencies of all files under `/home` directory recursively
 using `6` worker threads, returning the result into static `counts`.
 ```c
