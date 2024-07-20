@@ -25,7 +25,7 @@
 /* add external filepath to 'flocks' */
 void cfreqS_addfilelock(CFThread *th, const char *filepath, cf_byte lock) {
 	cfreq_State *cfs = th->cfs;
-	char *dupfp = cf_strdup(th, filepath); /* might be in buffer */
+	char *dupfp = cfreqB_strdup(th, filepath); /* might be in buffer */
 
 	lockstatemutex(th);
 	checkdead(th);
@@ -56,11 +56,11 @@ static void traversedir(CFThread *th, const char *dirpath) {
 	(void)bufpop(&th->buf); /* pop null terminator */
 	root = !(buflast(&th->buf) != CF_PATHSEP);
 	if (cf_likely(!root)) /* '/' not root ? */
-		c2buff(th, &th->buf, CF_PATHSEP); /* add path separator */
+		cfreqB_addchar(th, &th->buf, CF_PATHSEP); /* add path separator */
 	for (errno = 0; (entry = readdir(dir)) != NULL; errno = 0) {
 		size_t len = strlen(entry->d_name);
-		str2buff(th, &th->buf, entry->d_name, len);
-		c2buff(th, &th->buf, '\0');
+		cfreqB_addstring(th, &th->buf, entry->d_name, len);
+		cfreqB_addchar(th, &th->buf, '\0');
 		if (lstat(th->buf.str, &st) < 0)
 			cfreqE_errorf(th, "lstat(%S): %S", th->buf.str, strerror(errno));
 		if (S_ISREG(st.st_mode)) {
@@ -80,7 +80,7 @@ static void traversedir(CFThread *th, const char *dirpath) {
 		cfreqE_errnoerror(th, "readdir", olderrno);
 	cf_assert((!root) == (buflast(&th->buf) == CF_PATHSEP));
 	th->buf.len -= !root;
-	c2buff(th, &th->buf, '\0'); /* null terminate */
+	cfreqB_addchar(th, &th->buf, '\0'); /* null terminate */
 }
 
 
@@ -89,17 +89,17 @@ static void addfilepath(CFThread *th, const char *filepath) {
 	struct stat st;
 
 	cf_logf("T%lu is traversing '%s'", th->thread, filepath);
-	initbuf(th, &th->buf);
+	cfreqB_init(th, &th->buf);
 	if (lstat(filepath, &st) < 0)
 		cfreqE_errorf(th, "lstat(%S): %S", filepath, strerror(errno));
 	if (S_ISREG(st.st_mode)) {
 		cfreqS_addfilelock(th, filepath, 1);
 	} else if (S_ISDIR(st.st_mode)) {
-		str2buff(th, &th->buf, filepath, strlen(filepath));
-		c2buff(th, &th->buf, '\0');
+		cfreqB_addstring(th, &th->buf, filepath, strlen(filepath));
+		cfreqB_addchar(th, &th->buf, '\0');
 		traversedir(th, filepath);
 	}
-	freebuf(th, &th->buf);
+	cfreqB_free(th, &th->buf);
 }
 
 
@@ -264,7 +264,7 @@ static void cleanupworker(cfreq_State *cfs, CFThread *worker) {
 	cf_assert(!worker->mainthread);
 	cf_assert(worker->statelock);
 	if (!worker->dead) {
-		freebuf(worker, &worker->buf);
+		cfreqB_free(worker, &worker->buf);
 		closedirs(worker);
 		worker->dead = 1; /* mark it as dead */
 		cfs->threadsact--;

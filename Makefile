@@ -3,14 +3,29 @@
 
 include config.mk
 
-SRC = src/cfalloc.c src/cfapi.c src/cferror.c src/cfreq.c src/cfstate.c \
-	  src/cfbuffer.c
+# source and object files for binary and library
+SRC = src/cfalloc.c src/cfapi.c src/cferror.c src/cfstate.c src/cfbuffer.c
 OBJ = ${SRC:.c=.o}
 
+# binary
+BINSRC = src/cfreq.c
+BINOBJ = src/cfreq.o
 BIN = cfreq
+
+# shared library
+LIBOBJ = src/cfalloc.pic.o src/cfapi.pic.o src/cferror.pic.o \
+		 src/cfstate.pic.o src/cfbuffer.pic.o
 LIB = libcfreq.so
 
+# archive
+ARCHIVE = libcfreq.a
+
+
 all: options ${BIN}
+
+library: options ${LIB}
+
+archive: options ${ARCHIVE}
 
 options:
 	@echo ${BIN} build options:
@@ -18,16 +33,26 @@ options:
 	@echo "LDFLAGS = ${LDFLAGS}"
 	@echo "CC      = ${CC}"
 
-src/%.o : src/%.c
-	${CC} -c ${CFLAGS} $< -o $@
+src/%.pic.o: src/%.c
+	${CC} -c -fPIC ${CFLAGS} $< -o $@
+
+${LIB}: ${LIBOBJ}
+	${CC} -shared ${LDFLAGS} $^ -o $@
+
+${BIN}: ${OBJ} ${BINOBJ}
+	${CC} ${LDFLAGS} $^ -o $@
+
+${ARCHIVE}: ${OBJ}
+	${AR} ${ARARGS} $@ $^
 
 ${OBJ}: config.mk
 
-${BIN}: ${OBJ}
-	${CC} -o $@ ${OBJ} ${LDFLAGS}
+src/%.o: src/%.c
+	${CC} -c ${CFLAGS} $< -o $@
 
 clean:
-	rm -f ${BIN} ${OBJ} ${BIN}-${VERSION}.tar.gz
+	rm -f ${BIN} ${LIB} ${ARCHIVE} ${OBJ} ${BINOBJ} ${LIBOBJ} \
+	      ${BIN}-${VERSION}.tar.gz
 
 dist: clean
 	mkdir -p ${BIN}-${VERSION}
@@ -49,4 +74,4 @@ uninstall:
 	rm -f ${DESTDIR}${PREFIX}/bin/${BIN}\
 		${DESTDIR}${MANPREFIX}/man1/${BIN}.1.gz
 
-.PHONY: all options clean dist install unistall
+.PHONY: all archive library options clean dist install unistall

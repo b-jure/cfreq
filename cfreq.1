@@ -1,0 +1,72 @@
+.TH cfreq 1 "20.07.2024" "version 1.0.0"
+
+.SH NAME
+cfreq - character frequency counter
+
+.SH SYNOPSIS
+.B cfreq \fP[-ncm78] [-t \fIcount\fP] [-s \fIsort\fP] \fI[,[DIRNAME | FILENAME]]\fP
+
+.SH DESCRIPTION
+Multithreaded character frequency counter. It traverses provided directories and \
+starts counting using single or multiple threads.
+The character counts are represented as numbers of times a specific 7 or 8 bit \
+ASCII character occurred inside of the traversed regular files (symbolic links \
+and other special files are ignored).
+\fIcfreq\fP should also come with all the resources required to create a C shared \
+library (which it uses extensively), as well as an archive.
+Additionally \fIcfreq\fP does not require the mentioned shared library as it is
+already baked in the binary itself.
+
+.SH COMMANDS
+.TP
+.B -t \fIcount\fP
+Specifies how many threads to use for counting. \
+If \fIcount\fP is 0 then it is set as 1, in case the \fIcount\fP overflows \
+current number of online CPU cores it is clamped.
+.TP
+.B -s \fIsort\fP
+Sorts the computed character counts. \
+If \fIsort\fP is -1 then the counts are sorted in reverse (from max to min), \
+if it is 0 then no sorting will occur and if it is 1 usual sorting will be applied \
+(from min to max).
+.TP
+.B -n
+Show only counts (numbers) without ASCII text.
+.TP
+.B -c
+Show elapsed cpu time it took to count.
+.TP
+.B -m
+Show elapsed monotonic time it took to count.
+.TP
+.B -7
+Display only 7 bit ASCII counts.
+.TP
+.B -8
+Display 8 bit ASCII counts (8 bit chars will have '?' as their ASCII text).
+
+.SH EXAMPLES
+Traverse \fIDownloads\fP directory recursively with 6 worker threads counting \
+all the characters inside of traversed regular files.
+
+.RS
+\fBcfreq -t6 ~/Downloads\fP
+.RE
+
+Same as above but also traverse \fI.config\fP directory and sort the counts.
+
+.RS
+\fBcfreq -s1 -t6 ~/Downloads ~/.config\fP
+.RE
+
+Display elapsed cpu time, monotonic time and only 7 bit ASCII counts, use a single thread.
+
+.RS
+\fBcfreq -cm7t1 ~/Downloads\fP
+.RE
+
+.SH AUTHOR
+Written by B. Jure.
+
+.SH SEE ALSO
+.B pthreads(7)

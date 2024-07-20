@@ -21,7 +21,7 @@ static cf_noret cfreq_panic(cfreq_State *cfs, CFThread *th) {
 			cfreqS_freeworker(cfs, th);
 	} else { /* error in mainthread */
 		cf_assert(th->mainthread);
-		freebuf(th, &th->buf);
+		cfreqB_free(th, &th->buf);
 		cfreqS_closemtdirs(th);
 		if (cfs->fpanic) {
 			unlockstatemutex(th); /* unlock if locked */
@@ -39,47 +39,47 @@ static inline void Ewritevf(cfreq_State *cfs, CFThread *th, const char *fmt,
 	const char *end;
 	Buffer buf;
 
-	initbuf(th, &buf);
+	cfreqB_init(th, &buf);
 	while ((end = strchr(fmt, '%')) != NULL) {
-		str2buff(th, &buf, fmt, end - fmt);
+		cfreqB_addstring(th, &buf, fmt, end - fmt);
 		switch (end[1]) {
 		case '%': {
-			c2buff(th, &buf, '%');
+			cfreqB_addchar(th, &buf, '%');
 			break;
 		}
 		case 'D': {
 			int i = va_arg(ap, int);
-			int2buff(th, &buf, i);
+			cfreqB_addint(th, &buf, i);
 			break;
 		}
 		case 'N': {
 			size_t n = va_arg(ap, size_t);
-			size2buff(th, &buf, n);
+			cfreqB_addsizet(th, &buf, n);
 			break;
 		}
 		case 'S': {
 			const char *str = va_arg(ap, const char *);
 			if (str == NULL)
-				str2buff(th, &buf, "(null)", sizeof("(null)") - 1);
+				cfreqB_addstring(th, &buf, "(null)", sizeof("(null)") - 1);
 			else
-				str2buff(th, &buf, str, strlen(str));
+				cfreqB_addstring(th, &buf, str, strlen(str));
 			break;
 		}
 		case 'C': {
 			int c = va_arg(ap, int);
-			c2buff(th, &buf, c);
+			cfreqB_addchar(th, &buf, c);
 			break;
 		}
 		default:
-			freebuf(th, &buf);
+			cfreqB_free(th, &buf);
 			cfreqE_errorf(th, "unkown format specifier '%%%C'", end[1]);
 		}
 		fmt = end + 2; /* '%' + specifier */
 	}
-	str2buff(th, &buf, fmt, strlen(fmt));
-	c2buff(th, &buf, '\0'); /* null terminate */
+	cfreqB_addstring(th, &buf, fmt, strlen(fmt));
+	cfreqB_addchar(th, &buf, '\0'); /* null terminate */
 	cfs->ferror(cfs, buf.str);
-	freebuf(th, &buf);
+	cfreqB_free(th, &buf);
 }
 
 

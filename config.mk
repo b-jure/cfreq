@@ -6,7 +6,6 @@ PREFIX = /usr/local
 MANPREFIX = $(PREFIX)/share/man
 
 # includes and libraries
-INCS =
 LIBS = -lpthread
 
 # optimizations 
@@ -14,13 +13,16 @@ OPTS = -O2
 
 # debug defines and 
 #DDEFS = -DCF_ASSERT -DCF_LOG
-#DCFLAGS = -fsanitize=address -fsanitize=undefined -g
-#DLDFLAGS = -fsanitize=address -fsanitize=undefined
+#ASANFLAGS = -fsanitize=address -fsanitize=undefined
+#DBGFLAGS = ${ASANFLAGS} -g
 
 # flags
-CPPFLAGS =
-CFLAGS   = -std=c99 -Wpedantic -Wall -Wextra ${DDEFS} ${DCFLAGS} ${OPTS} ${INCS} ${CPPFLAGS}
-LDFLAGS  = ${LIBS} ${DLDFLAGS}
+CFLAGS   = -std=c99 -Wpedantic -Wall -Wextra ${DDEFS} ${DBGFLAGS} ${OPTS}
+LDFLAGS  = ${LIBS} ${ASANFLAGS}
 
 # compiler and linker
 CC = gcc
+
+# archiver
+AR = ar
+ARARGS = rcs

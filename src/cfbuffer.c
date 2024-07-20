@@ -25,7 +25,7 @@
 
 
 /* initialize buffer */
-void initbuf(CFThread *th, Buffer *buf) {
+void cfreqB_init(CFThread *th, Buffer *buf) {
 	buf->size = 0;
 	buf->len = 0;
 	buf->str = NULL;
@@ -34,7 +34,7 @@ void initbuf(CFThread *th, Buffer *buf) {
 
 
 /* conversion for integers */
-void int2buff(CFThread *th, Buffer *buf, int i) {
+void cfreqB_addint(CFThread *th, Buffer *buf, int i) {
 	char temp[MAXNUMDIGITS];
 	int cnt = snprintf(temp, sizeof(temp), "%d", i);
 	ensurebuf(th, buf, cnt);
@@ -44,7 +44,7 @@ void int2buff(CFThread *th, Buffer *buf, int i) {
 
 
 /* conversion for size_t  */
-void size2buff(CFThread *th, Buffer *buf, size_t n) {
+void cfreqB_addsizet(CFThread *th, Buffer *buf, size_t n) {
 	char temp[MAXNUMDIGITS];
 	int cnt = snprintf(temp, sizeof(temp), "%lu", n);
 	ensurebuf(th, buf, cnt);
@@ -54,7 +54,7 @@ void size2buff(CFThread *th, Buffer *buf, size_t n) {
 
 
 /* conversion for strings */
-void str2buff(CFThread *th, Buffer *buf, const char *str, size_t len) 
+void cfreqB_addstring(CFThread *th, Buffer *buf, const char *str, size_t len) 
 {
 	ensurebuf(th, buf, len);
 	memcpy(&buf->str[buf->len], str, len);
@@ -63,27 +63,14 @@ void str2buff(CFThread *th, Buffer *buf, const char *str, size_t len)
 
 
 /* conversion for chars */
-void c2buff(CFThread *th, Buffer *buf, int c) {
+void cfreqB_addchar(CFThread *th, Buffer *buf, int c) {
 	ensurebuf(th, buf, 1);
 	buf->str[buf->len++] = c;
 }
 
 
-/* pop last filepath segment up until CF_PATHSEP */
-void buffpoppath(Buffer *buf, cf_byte popsep) {
-	char *sep = NULL;
-
-	for (size_t i = 0; i < buf->len; i++) {
-		if (buf->str[i] == CF_PATHSEP)
-			sep = &buf->str[i];
-	}
-	if (sep && sep - buf->str > 1)
-		buf->len = sep - buf->str + !popsep;
-}
-
-
 /* free buffer memory */
-void freebuf(CFThread *th, Buffer *buf) {
+void cfreqB_free(CFThread *th, Buffer *buf) {
 	if (buf->size > 0) {
 		cf_assert(buf->str != NULL);
 		cfreqA_freearray(th, buf->str, buf->size);
@@ -93,7 +80,7 @@ void freebuf(CFThread *th, Buffer *buf) {
 
 
 /* duplicate strings */
-char *cf_strdup(CFThread *th, const char *str) {
+char *cfreqB_strdup(CFThread *th, const char *str) {
 	cf_assert(str != NULL);
 	size_t len = strlen(str);
 	char *new = cfreqA_malloc(th, len + 1);
