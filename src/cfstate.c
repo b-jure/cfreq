@@ -90,19 +90,24 @@ static void traversedir(CFThread *th, const char *dirpath) {
 
 
 /* add filepath to 'flocks' */
-static void addfilepath(CFThread *th, const char *filepath) {
+static void addfilepath(CFThread *th, FileLock *fl) {
 	struct stat st;
+	char *filepath = fl->filepath;
 
 	cf_logf("T%lu is traversing '%s'", th->thread, filepath);
 	cfreqB_init(th, &th->buf);
-	if (lstat(filepath, &st) < 0)
+	if (lstat(filepath, &st) < 0) {
+		unlockstatemutex(th);
 		cfreqE_errorf(th, "lstat(%S): %S", filepath, strerror(errno));
-	if (S_ISREG(st.st_mode)) {
-		cfreqS_addfilelock(th, filepath, 1);
-	} else if (S_ISDIR(st.st_mode)) {
+	}
+	if (S_ISDIR(st.st_mode)) {
+		fl->lockcnt = 1; /* do not count directory entries */
+		unlockstatemutex(th);
 		cfreqB_addstring(th, &th->buf, filepath, strlen(filepath));
 		cfreqB_addchar(th, &th->buf, '\0');
 		traversedir(th, filepath);
+	} else {
+		unlockstatemutex(th);
 	}
 	cfreqB_free(th, &th->buf);
 }
@@ -115,8 +120,8 @@ static void addfilepaths(cfreq_State *cfs, CFThread *th) {
 		FileLock *fl = &cfs->flocks[i];
 		if (!fl->lock) { /* if not locked */
 			fl->lock = 1;
-			unlockstatemutex(th);
-			addfilepath(th, fl->filepath);
+			addfilepath(th, fl);
+			cf_assert(!th->statelock);
 			checkdead(th);
 			lockstatemutex(th);
 		}
@@ -131,7 +136,7 @@ static void addfilepaths(cfreq_State *cfs, CFThread *th) {
  * ------------------------------------------------------------------------- */
 
 typedef struct FileBuf {
-	int n;
+	size_t n;
 	FILE *fp;
 	cf_byte buf[CF_BUFSIZ];
 	cf_byte *current;
@@ -155,19 +160,23 @@ static inline void closefb(FileBuf *fb) {
 }
 
 
-static const cf_byte *fillfilebuf(FileBuf *fb) {
+static int fillfilebuf(FileBuf *fb) {
 	cf_assert(fb->n == 0 && fb->current != NULL);
-	if (feof(fb->fp)) return (fb->current = NULL);
+	if (feof(fb->fp))
+		return (fb->current = NULL, EOF);
 	fb->n = fread(fb->buf, 1, sizeof(fb->buf), fb->fp);
-	if (fb->n > 0) return (fb->current = fb->buf);
-	return (fb->current = NULL);
+	if (fb->n > 0) 
+		return (fb->current = fb->buf, *fb->current++);
+	return (fb->current = NULL, EOF);
 }
 
 
 static inline int fbgetc(FileBuf *fb) {
-	if (fb->n > 0) return (fb->n--, *fb->current++);
-	else if (fb->current == NULL) return EOF;
-	else return (fillfilebuf(fb), fbgetc(fb));
+	if (fb->n > 0) 
+		return (fb->n--, *fb->current++);
+	else if (fb->current == NULL)
+		return EOF;
+	return fillfilebuf(fb);
 }
 
 
