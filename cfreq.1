@@ -4,7 +4,7 @@
 cfreq - character frequency counter
 
 .SH SYNOPSIS
-.B cfreq \fP[-ncm78] [-t \fIcount\fP] [-s \fIsort\fP] \fI[,[DIRNAME | FILENAME]]\fP
+.B cfreq \fP[-ncm78v] [-t \fIcount\fP] [-s \fIsort\fP] \fI[,[DIRNAME | FILENAME]]\fP
 
 .SH DESCRIPTION
 Multithreaded character frequency counter. It traverses provided directories and \
@@ -44,6 +44,9 @@ Display only 7 bit ASCII counts.
 .TP
 .B -8
 Display 8 bit ASCII counts (8 bit chars will have '?' as their ASCII text).
+.TP
+.B -v
+Display verbose output (\fIstderr\fP) when counting files and traversing directories.
 
 .SH EXAMPLES
 Traverse \fIDownloads\fP directory recursively with 6 worker threads counting \
@@ -62,7 +65,7 @@ Same as above but also traverse \fI.config\fP directory and sort the counts.
 Display elapsed cpu time, monotonic time and only 7 bit ASCII counts, use a single thread.
 
 .RS
-\fBcfreq -cm7t1 ~/Downloads\fP
+\fBcfreq -cm7 ~/Downloads\fP
 .RE
 
 .SH AUTHOR

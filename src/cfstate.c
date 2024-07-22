@@ -56,6 +56,8 @@ static void traversedir(CFThread *th, const char *dirpath) {
 	DIR *dir = opendir(dirpath);
 	if (dir == NULL)
 		cfreqE_errorf(th, "opendir(%S): %S", dirpath, strerror(errno));
+	if (S_(th)->log)
+		cfreqE_warnf(th, "traversing '%S'...", dirpath);
 	adddir(th, dir);
 	cf_assert(buflast(&th->buf) == '\0');
 	(void)bufpop(&th->buf); /* pop null terminator */
@@ -202,6 +204,8 @@ static void countfile(CFThread *th, const char *filepath) {
 
 	cf_assert(!th->statelock);
 	cf_logf("T%lu counting '%s'", th->thread, filepath);
+	if (S_(th)->log)
+		cfreqE_warnf(th, "counting '%S'...", filepath);
 	openfb(&fb, filepath, th); /* open file buffer */
 	while ((c = fbgetc(&fb)) != EOF)
 		th->counts[(cf_byte)c]++;
@@ -426,6 +430,8 @@ void cfreqS_resetstate(cfreq_State *cfs) {
 	resetfilelocks(cfs);
 	memset(mt->counts, 0, sizeof(mt->counts));
 	cfs->condvar = 0;
+	cfs->errworker = 0;
+	cfs->log = 0;
 }
 
 

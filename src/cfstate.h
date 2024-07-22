@@ -11,6 +11,7 @@
 #include <pthread.h>
 
 #include "cfreq.h"
+#include "cfinternal.h"
 
 
 
@@ -123,6 +124,7 @@ struct cfreq_State {
 	pthread_cond_t statecond; /* state condition */
 	pthread_cond_t workercond; /* state condition */
 	volatile cf_byte errworker; /* true if any of the worker threads errored */
+	cf_byte log; /* true if logging is enabled */
 };
 
 

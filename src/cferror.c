@@ -14,7 +14,6 @@
 
 
 
-
 /* panic */
 static cf_noret cfreq_panic(cfreq_State *cfs, CFThread *th) {
 	if (th->dead || !th->mainthread) {
@@ -164,4 +163,16 @@ cf_noret cfreqE_errnoerror_(CFThread *th, const char *errno_fn, int code, ...) {
 		va_end(ap);
 	}
 	cfreq_panic(cfs, th);
+}
+
+
+/* print warrning */
+void cfreqE_warn_(CFThread *th, const char *wfmt, ...) {
+	cfreq_State *cfs = S_(th);
+
+	cf_assert(fcs->ferror != NULL);
+	va_list ap;
+	va_start(ap, wfmt);
+	Ewritevf(cfs, th, wfmt, ap);
+	va_end(ap);
 }

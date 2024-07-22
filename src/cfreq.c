@@ -53,6 +53,7 @@ typedef struct CliArgs {
 	cf_byte cpuclock; /* use cpu clock */
 	cf_byte monoclock; /* use monotonic clock */
 	cf_byte nums; /* show only numbers (counts) */
+	cf_byte verbose; /* verbose output */
 	char sort; /* sort == 0 (no sort), sort == -1 (rev) sort == 1 (sort) */
 } CliArgs;
 
@@ -188,7 +189,11 @@ moreopts:
 				break;
 			case '8': /* 8-bit ascii */
 				cliargs->ascii128 = 0;
-				if (arg[++i] != '\0') goto moreopts;
+				jmpifhaveopt(arg, i, moreopts);
+				break;
+			case 'v': /* verbose output */
+				cliargs->verbose = 1;
+				jmpifhaveopt(arg, i, moreopts);
 				break;
 			case 's': /* sort */
 				if (arg[++i] != '\0') {
@@ -306,7 +311,7 @@ static void cferror(cfreq_State *cfs, const char *msg) {
 
 
 /* panic handler */
-static cf_noret cfpanic(cfreq_State *cfs) {
+static void cfpanic(cfreq_State *cfs) {
 	cfreq_free(cfs);
 	exit(EXIT_FAILURE);
 }
@@ -367,7 +372,7 @@ int main(int argc, char **argv) {
 	}
 	clock_gettime(CLOCK_MONOTONIC, &start);
 	time_t tick = clock();
-	cfreq_count(cfs, cliargs.nthreads, counts);
+	cfreq_count(cfs, cliargs.nthreads, counts, cliargs.verbose);
 	time_t tock = clock();
 	clock_gettime(CLOCK_MONOTONIC, &stop);
 	setcfcounts(counts);

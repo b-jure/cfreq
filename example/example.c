@@ -19,7 +19,7 @@ int main(int argc, char **argv) {
 	if (state == NULL)
 		exit(EXIT_FAILURE);
 	cfreq_addfilepath(state, "/home");
-	cfreq_count(state, 6, counts);
+	cfreq_count(state, 6, counts, 0);
 	for (int i = 0; i < CFREQ_TABLESIZE; i++)
 		printf("%03d  %zu\n", i, counts[i]);
 	fflush(stdout);

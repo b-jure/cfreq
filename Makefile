@@ -14,7 +14,6 @@ BIN = cfreq
 
 # shared library
 LIBH = cfreq.h
-LIBCONFH = cfconf.h
 LIBOBJ = src/cfalloc.pic.o src/cfapi.pic.o src/cferror.pic.o \
 		 src/cfstate.pic.o src/cfbuffer.pic.o
 LIB = libcfreq.so
@@ -75,9 +74,8 @@ install: all
 install-library: library
 	mkdir -p ${DESTDIR}${PREFIX}/lib
 	cp -f ${LIB} ${DESTDIR}${PREFIX}/lib
-	cp -f src/${LIBH} src/${LIBCONFH} ${DESTDIR}${PREFIX}/include
+	cp -f src/${LIBH} ${DESTDIR}${PREFIX}/include
 	chmod 755 ${DESTDIR}${PREFIX}/include/${LIBH}
-	chmod 755 ${DESTDIR}${PREFIX}/include/${LIBCONFH}
 	chmod 755 ${DESTDIR}${PREFIX}/lib/${LIB}
 
 uninstall:
@@ -86,8 +84,7 @@ uninstall:
 
 uninstall-library:
 	rm -f ${DESTDIR}${PREFIX}/lib/${LIB}\
-	rm -f ${DESTDIR}${PREFIX}/include/${LIBH}\
-	rm -f ${DESTDIR}${PREFIX}/include/${LIBCONFH}
+	rm -f ${DESTDIR}${PREFIX}/include/${LIBH}
 
 .PHONY: all archive library options clean dist install install-library\
 		unistall unistall-library

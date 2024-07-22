@@ -38,6 +38,7 @@ cfreq_newstate(cfreq_fRealloc frealloc, void *ud) {
 	pthread_cond_init(&cfs->statecond, NULL);
 	pthread_cond_init(&cfs->workercond, NULL);
 	cfs->errworker = 0;
+	cfs->log = 0;
 	return cfs;
 }
 
@@ -80,7 +81,10 @@ cfreq_addfilepath(cfreq_State *cfs, const char *filepath) {
 
 
 CFREQ_API void
-cfreq_count(cfreq_State *cfs, size_t nthreads, size_t dest[CFREQ_TABLESIZE]) {
+cfreq_count(cfreq_State *cfs, size_t nthreads, size_t dest[CFREQ_TABLESIZE],
+			int log) 
+{
+	cfs->log = log;
 	CFThread *mt = MT_(cfs);
 	nthreads = (nthreads == 0 ? 1 : nthreads);
 	cf_logf("counting with %zu thread/s", nthreads);
