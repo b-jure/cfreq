@@ -31,11 +31,15 @@
 void cfreqS_addfilelock(CFThread *th, const char *filepath, cf_byte lock) {
 	cfreq_State *cfs = th->cfs;
 	char *dupfp = cfreqB_strdup(th, filepath); /* might be in buffer */
+	FileLock fl;
 
+	fl.filepath = dupfp;
+	fl.lock = lock;
+	fl.lockcnt = 0;
 	lockstatemutex(th);
 	checkdead(th);
 	cfreqA_growarray(th, cfs->flocks, cfs->sizefl, cfs->nflocks);
-	cfs->flocks[cfs->nflocks++] = (FileLock){ .filepath = dupfp, .lock = lock };
+	cfs->flocks[cfs->nflocks++] = fl;
 	unlockstatemutex(th);
 }
 
@@ -48,21 +52,21 @@ static void adddir(CFThread *th, DIR *dir) {
 
 
 /* traverse directory */
-static void traversedir(CFThread *th, const char *dirpath) {
+static void traversedir(CFThread *th, const char *dirpath, size_t *filecnt) {
 	struct stat st;
 	struct dirent *entry;
-	cf_byte root;
+	cf_byte havesep;
 
 	DIR *dir = opendir(dirpath);
 	if (dir == NULL)
 		cfreqE_errorf(th, "opendir(%S): %S", dirpath, strerror(errno));
 	if (S_(th)->log)
-		cfreqE_warnf(th, "traversing '%S'...", dirpath);
+		cfreqE_warnf(th, "traversing '%S'", dirpath);
 	adddir(th, dir);
 	cf_assert(buflast(&th->buf) == '\0');
 	(void)bufpop(&th->buf); /* pop null terminator */
-	root = !(buflast(&th->buf) != CF_PATHSEP);
-	if (cf_likely(!root)) /* '/' not root ? */
+	havesep = buflast(&th->buf) == CF_PATHSEP;
+	if (cf_likely(!havesep))
 		cfreqB_addchar(th, &th->buf, CF_PATHSEP); /* add path separator */
 	for (errno = 0; (entry = readdir(dir)) != NULL; errno = 0) {
 		size_t len = strlen(entry->d_name);
@@ -71,10 +75,11 @@ static void traversedir(CFThread *th, const char *dirpath) {
 		if (lstat(th->buf.str, &st) < 0)
 			cfreqE_errorf(th, "lstat(%S): %S", th->buf.str, strerror(errno));
 		if (S_ISREG(st.st_mode)) {
+			*filecnt += 1;
 			cfreqS_addfilelock(th, th->buf.str, 1);
 		} else if (S_ISDIR(st.st_mode)) {
 			if (strcmp(entry->d_name, ".") && strcmp(entry->d_name, ".."))
-				traversedir(th, th->buf.str);
+				traversedir(th, th->buf.str, filecnt);
 		}
 		cf_assert(buflast(&th->buf) == '\0');
 		(void)bufpop(&th->buf); /* pop null terminator */
@@ -85,8 +90,7 @@ static void traversedir(CFThread *th, const char *dirpath) {
 		cfreqE_errnoerror(th, "closedir", errno);
 	if (cf_unlikely(olderrno != 0))
 		cfreqE_errnoerror(th, "readdir", olderrno);
-	cf_assert((!root) == (buflast(&th->buf) == CF_PATHSEP));
-	th->buf.len -= !root;
+	th->buf.len -= !havesep;
 	cfreqB_addchar(th, &th->buf, '\0'); /* null terminate */
 }
 
@@ -95,8 +99,8 @@ static void traversedir(CFThread *th, const char *dirpath) {
 static void addfilepath(CFThread *th, FileLock *fl) {
 	struct stat st;
 	char *filepath = fl->filepath;
+	size_t filecnt = 0;
 
-	cf_logf("T%lu is traversing '%s'", th->thread, filepath);
 	cfreqB_init(th, &th->buf);
 	if (lstat(filepath, &st) < 0) {
 		unlockstatemutex(th);
@@ -107,10 +111,12 @@ static void addfilepath(CFThread *th, FileLock *fl) {
 		unlockstatemutex(th);
 		cfreqB_addstring(th, &th->buf, filepath, strlen(filepath));
 		cfreqB_addchar(th, &th->buf, '\0');
-		traversedir(th, filepath);
+		traversedir(th, filepath, &filecnt);
 	} else {
+		filecnt = 1;
 		unlockstatemutex(th);
 	}
+	cf_logf("T%lu added %zu files", th->thread, filecnt);
 	cfreqB_free(th, &th->buf);
 }
 
@@ -151,7 +157,7 @@ static inline void openfb(FileBuf *fb, const char *filepath, CFThread *th) {
 	fb->current = fb->buf;
 	fb->th = th;
 	fb->fp = fopen(filepath, "r");
-	if (cf_unlikely(fb->fp == NULL))
+	if (cf_unlikely(fb->fp == NULL && errno != ENOENT))
 		cfreqE_errorf(th, "fopen(%S): %S", filepath, strerror(errno));
 }
 
@@ -163,30 +169,32 @@ static inline void closefb(FileBuf *fb) {
 
 
 static int fillfilebuf(FileBuf *fb) {
-	cf_assert(fb->n == 0 && fb->current != NULL);
+	cf_assert(fb->n == 0);
 	if (feof(fb->fp))
-		return (fb->current = NULL, EOF);
+		return EOF;
 	fb->n = fread(fb->buf, 1, sizeof(fb->buf), fb->fp);
-	if (fb->n > 0) 
-		return (fb->current = fb->buf, *fb->current++);
-	return (fb->current = NULL, EOF);
+	if (cf_unlikely(fb->n == 0))
+		return EOF;
+	fb->current = fb->buf;
+	return (fb->n--, *fb->current++);
 }
 
 
 static inline int fbgetc(FileBuf *fb) {
 	if (fb->n > 0) 
 		return (fb->n--, *fb->current++);
-	else if (fb->current == NULL)
-		return EOF;
-	return fillfilebuf(fb);
+	else
+		return fillfilebuf(fb);
 }
 
 
 /* combine counts from 'worker' thread into main thread table */
 static void addcountstomt(cfreq_State *cfs, CFThread *worker) {
 	CFThread *mt = MT_(cfs);
+
 	cf_assert(!worker->mainthread);
 	cf_assert(worker->statelock);
+	cf_logf("T%lu adding counts to main table", worker->thread);
 	for (size_t i = 0; i < CFREQ_TABLESIZE; i++) { /* add counts to state table */
 		if (cf_unlikely(mt->counts[i] > MAX_CFSIZE - worker->counts[i])) {
 			unlockstatemutex(worker);
@@ -202,11 +210,16 @@ static void countfile(CFThread *th, const char *filepath) {
 	FileBuf fb;
 	int c;
 
+	/* lock is not held here */
 	cf_assert(!th->statelock);
-	cf_logf("T%lu counting '%s'", th->thread, filepath);
-	if (S_(th)->log)
-		cfreqE_warnf(th, "counting '%S'...", filepath);
 	openfb(&fb, filepath, th); /* open file buffer */
+	if (fb.fp == NULL)  {
+		cf_logf("skipping file '%s'", filepath);
+		if (S_(th)->log)
+			cfreqE_warnf(th, "file '%S' doesn't exist anymore, skipping", filepath);
+		return;
+	}
+	if (S_(th)->log) cfreqE_warnf(th, "counting '%S'", filepath);
 	while ((c = fbgetc(&fb)) != EOF)
 		th->counts[(cf_byte)c]++;
 	closefb(&fb); /* close file buffer */
@@ -216,8 +229,10 @@ static void countfile(CFThread *th, const char *filepath) {
 /* count characters */
 static void countallfiles(cfreq_State *cfs, CFThread *th)
 {
+	/* mutex is locked */
 	cf_assert(th->statelock);
 	for (size_t i = 0; i < cfs->nflocks && !th->dead; i++) {
+		cf_assert(th->statelock);
 		FileLock *fl = &cfs->flocks[i];
 		if (!fl->lockcnt) { /* if not locked */
 			fl->lockcnt = 1;
@@ -307,6 +322,7 @@ static void *workerfn(void *userdata) {
 	countallfiles(cfs, worker); /* start counting */
 	addcountstomt(cfs, worker);
 	cleanupworker(cfs, worker);
+	cf_logf("T%lu finished counting without errors", worker->thread);
 	unlockstatemutex(worker);
 	return NULL;
 }
@@ -344,6 +360,7 @@ void cfreqS_countthreaded(cfreq_State *cfs, size_t nthreads)
 	pthread_cond_broadcast(&cfs->workercond);
 	while (cfs->condvar != 0)
 		waitcond(mt, &cfs->statecond);
+	cf_log("threads are now counting");
 	pthread_cond_broadcast(&cfs->workercond);
 	unlockstatemutex(mt);
 	for (size_t i = 0; i < nthreads; i++) { /* join on all threads */
@@ -353,6 +370,7 @@ void cfreqS_countthreaded(cfreq_State *cfs, size_t nthreads)
 		if (cf_unlikely(res != 0))
 			cfreqE_pthreaderror(mt, "pthread_join", res);
 	}
+	lockstatemutex(mt); /* acquire lock */
 	if (cf_unlikely(cfs->errworker)) {
 workerror:
 		cfreqE_error(mt, "worker thread had an error");

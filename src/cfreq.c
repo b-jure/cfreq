@@ -346,6 +346,7 @@ static void printusage(void) {
 			"\t-n  show only counts (numbers)\n"
 			"\t-c  show elapsed cpu time\n"
 			"\t-m  show elapsed monotonic time\n"
+			"\t-v  show verbose output\n"
 			"\t-7  count 7 bit ASCII\n"
 			"\t-8  count 8 bit ASCII\n"
 			"\t-s  sort the results -1 reverse, 0 no sort, 1 sort\n");
@@ -354,8 +355,9 @@ static void printusage(void) {
 
 /* cfreq */
 int main(int argc, char **argv) {
+	CliArgs cliargs;
 	struct timespec start, stop;
-	size_t counts[CFREQ_TABLESIZE] = { 0 };
+	size_t counts[CFREQ_TABLESIZE];
 	int status = EXIT_SUCCESS;
 
 	cfreq_State *cfs = cfreq_newstate(cfrealloc, NULL);
@@ -363,9 +365,11 @@ int main(int argc, char **argv) {
 		cfprinterror("failed creating state");
 		exit(EXIT_FAILURE);
 	}
+	memset(counts, 0, sizeof(counts));
+	memset(&cliargs, 0, sizeof(cliargs));
+	cliargs.cfs = cfs;
 	cfreq_seterror(cfs, cferror);
 	cfreq_setpanic(cfs, cfpanic);
-	CliArgs cliargs = { .cfs = cfs };
 	if (parseargs(&cliargs, --argc, ++argv) != 0) {
 		printusage();
 		cfdefer(EXIT_FAILURE);

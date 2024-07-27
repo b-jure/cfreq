@@ -170,7 +170,7 @@ cf_noret cfreqE_errnoerror_(CFThread *th, const char *errno_fn, int code, ...) {
 void cfreqE_warn_(CFThread *th, const char *wfmt, ...) {
 	cfreq_State *cfs = S_(th);
 
-	cf_assert(fcs->ferror != NULL);
+	cf_assert(cfs->ferror != NULL);
 	va_list ap;
 	va_start(ap, wfmt);
 	Ewritevf(cfs, th, wfmt, ap);
