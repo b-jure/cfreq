@@ -41,7 +41,8 @@ For complete usage run the program with no additional arguments or refer to the
 manual page.
 ### Example library API
 This counts character frequencies of all files under `/home` directory recursively
-using `6` worker threads, returning the result into static `counts`.
+using `6` worker threads, returning the result into static `counts`, additional
+`0` in the `cfreq_count` disables verbose output (logging).
 ```c
 #include <stdlib.h>
 #include <cfreq.h>
@@ -64,7 +65,7 @@ int main(int argc, char **argv) {
 	if (state == NULL)
 		exit(EXIT_FAILURE);
 	cfreq_addfilepath(state, "/home");
-	cfreq_count(state, 6, counts);
+	cfreq_count(state, 6, counts, 0);
 	for (int i = 0; i < CFREQ_TABLESIZE; i++)
 		printf("%03d  %zu\n", i, counts[i]);
 	fflush(stdout);
